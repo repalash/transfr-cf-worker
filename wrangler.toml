@@ -1,0 +1,13 @@
+name = "transfr-cf"
+main = "./src/index.ts"
+compatibility_date = "2022-05-03"
+workers_dev = true
+
+kv_namespaces = [
+    { binding = "TEMP_STORE_KV_1", id = "9e7f134fc9d04742be0778fa7c7a0f84", preview_id = "9e7f134fc9d04742be0778fa7c7a0f84" }
+]
+
+[vars]
+KV_MAX_FILE_SIZE_BYTES = 21000000 # 20MB
+KV_DEFAULT_FILE_TTL = 86400 # 24 hours
+KV_DEFAULT_NAMESPACE = "TEMP_STORE_KV_1"
