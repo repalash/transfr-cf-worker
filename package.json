@@ -1,10 +1,12 @@
 {
 	"private": true,
 	"version": "0.0.0",
+	"type": "module",
 	"scripts": {
-		"deploy": "wrangler publish src/index.ts",
+		"deploy": "npm run bundle-html && wrangler publish src/index.ts",
 		"dev": "wrangler dev src/index.ts --local",
-		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+		"bundle-html": "node ./scripts/html-copy.js"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^3.0.0",

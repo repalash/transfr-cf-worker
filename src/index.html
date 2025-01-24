@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>transfr.one</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+  <style>
+      #dropzone {
+          border: 1px solid hsla(0, 0%, 50%, .33);
+          border-radius: 5px;
+          padding: 1rem;
+          color: #666;
+          transition: border 0.2s ease-in-out, background-color 0.2s ease-in-out;
+          cursor: pointer;
+      }
+
+      #dropzone:hover {
+          border: 1px solid hsla(0, 0%, 50%, .66);
+      }
+
+      #dropzone.drop-hover {
+          border: 1px solid hsla(0, 0%, 50%, .66);
+      }
+      .drop-hover {
+          background-color: #3331;
+      }
+
+      .key-btn{
+          border-radius: 2px;
+          border: 1px solid #3334;
+          padding: 1px 2px 1px 2px;
+          font-size: 0.9rem;
+      }
+
+      #transfr_one {
+          margin-bottom: 2rem;
+      }
+
+      #encrypt-btn {
+          color: red;
+          cursor: pointer;
+          pointer-events: all;
+          background-color: transparent;
+          border: none;
+          padding: 4px 6px 4px 6px;
+          margin-left: -4px;
+          border-radius: 2px;
+          transition: background-color 0.2s ease-in-out;
+          font-size: 0.9rem;
+      }
+      #encrypt-btn:hover {
+          background-color: #33333310;
+      }
+      #encrypt-btn.active {
+          color: #2a9d1e;
+      }
+      #encrypt-btn:before {
+          content: '✖';
+          margin-right: 4px;
+      }
+      #encrypt-btn.active:before {
+          content: '🔐';
+          margin-right: 0;
+      }
+
+      pre{
+          max-width: 100%;
+      }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.10.2/dist/openpgp.min.js"></script>
+  <script type="module">
+    import { SimpleDropzone } from "https://cdn.jsdelivr.net/npm/simple-dropzone@0.8.3/+esm";
+
+    function promptPassphrase() {
+      let passphrase = "";
+      let trial = 0;
+      while (trial < 3) {
+        passphrase = prompt("Enter passphrase to encrypt file with");
+        if (passphrase === null) return null;
+        if (passphrase.length < 4) alert("Passphrase must be at least 4 characters long.");
+        else return passphrase;
+        trial++;
+      }
+      alert("You can turn off encryption by clicking the 🔐 button.");
+      return null;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const dropzoneEl = document.getElementById("dropzone");
+      if (!SimpleDropzone) {
+        dropzoneEl.style.display = "none";
+        return;
+      }
+      const dropzoneText = document.getElementById("dropzone-text");
+      const dropzoneResult = document.getElementById("dropzone-result");
+      const finalDropzoneText = "Drop or paste another file to transfr.";
+
+      const inputEl = document.getElementById("file-input");
+      const encryptBtn = document.getElementById("encrypt-btn");
+      if (localStorage.getItem("doEncrypt") === null) localStorage.setItem("doEncrypt", encryptBtn.classList.contains("active") ? "1" : "0");
+      if (localStorage.getItem("doEncrypt") === "1") encryptBtn.classList.add("active");
+      else encryptBtn.classList.remove("active");
+
+      encryptBtn.addEventListener("click", () => localStorage.setItem("doEncrypt", encryptBtn.classList.toggle("active") ? "1" : "0"));
+      dropzoneEl.addEventListener("click", (e) => {
+        if (e.target && e.target.id !== "encrypt-btn") inputEl.click();
+      });
+      let elseHidden = false;
+      const evElse = document.body.querySelectorAll('#dropzone ~ *');
+      function toggleEvElse(show){
+        if(!show) {
+          evElse.forEach(el=>{
+            el.style.__transition = el.style.transition;
+            el.style.transition = "opacity 0.1s ease-out";
+            el.style.__opacity = el.style.opacity;
+            el.style.opacity = "0"
+          });
+          elseHidden = true;
+        }else {
+          evElse.forEach(el=>{
+            el.style.__transition = el.style.transition;
+            el.style.transition = "opacity 0.1s ease-out";
+            el.style.__opacity = el.style.opacity;
+            el.style.opacity = "0"
+          });
+          elseHidden = true;
+        }
+      }
+      document.body.addEventListener("dragover", (e) => {
+        document.body.classList.add("drop-hover")
+        if(!elseHidden) toggleEvElse(false);
+      });
+      document.body.addEventListener("dragleave", (e) => {
+        if(e.target!==document.body) return
+        document.body.classList.remove("drop-hover")
+        if(elseHidden) toggleEvElse(true);
+      });
+      dropzoneEl.addEventListener("dragover", (e) => {
+        dropzoneEl.classList.add("drop-hover")
+      });
+      dropzoneEl.addEventListener("dragleave", (e) => {
+        if(e.target!==dropzoneEl) return
+        dropzoneEl.classList.remove("drop-hover")
+      });
+
+      document.body.addEventListener('paste', async(e) => {
+        // console.log(e.clipboardData)
+        const items = await navigator.clipboard.read()
+        if(!items || !items.length) return;
+        const first = items[0]
+        const data = await first.getType(first.types[0])
+        console.log(data)
+        const isText = first.types[0].startsWith('text/')
+        const file = new File([data], "pasted"+(isText?'.txt':''), { type: first.types[0] });
+
+        if(localStorage.getItem("doEncrypt") !== '1') {
+          if(!confirm('Are you sure you want to upload the file or text from the clipboard WITHOUT encryption?')) return;
+        }
+
+        dropzone._emit('drop', {files: new Map([[file.name, file]])});
+      }, false);
+
+      const dropzone = new SimpleDropzone(document.body, inputEl);
+      console.log(dropzone)
+      dropzone._loadZip = (file1)=>{
+        dropzone._emit('drop', {files: new Map([file1].map((file) => [file.webkitRelativePath || file.name, file]))});
+      }
+      dropzone.on("drop", ({ files }) => {
+        document.body.classList.remove("drop-hover");
+        if(!elseHidden) toggleEvElse(false);
+
+        if (!files || !files.size) return;
+        if (files.size > 1) {
+          alert("Only one file can be uploaded at a time.");
+          return;
+        }
+        const file = files.values().next().value;
+        if (!file) return;
+        if (file.size > 20 * 1000 * 1000) {
+          alert("File size limit exceeded. Max file size is 20MB.");
+          return;
+        }
+        let filename = file.name.split("/").pop().split("\\").pop();
+        const ext = filename.split(".").pop();
+        filename = filename.split(".").slice(0, -1).map(a=>a.replace(/(\W+)/gi, "-")).join(".");
+        filename = filename + "." + ext;
+        const dispLabel = filename + " (" + file.size + " bytes)";
+        dropzoneText.innerText = dispLabel + ': Loading...';
+        file.arrayBuffer().then(async (ab) => {
+          let encrypt = false;
+          let newFile = file;
+          if (localStorage.getItem("doEncrypt") === '1') {
+            const passphrase = promptPassphrase();
+            if (!passphrase) return;
+            dropzoneText.innerText = dispLabel + ': Encrypting...';
+            const message = await openpgp.createMessage({
+              binary: new Uint8Array(ab),
+              filename: filename,
+              date: file.lastModifiedDate,
+              format: "binary"
+            });
+            const encrypted = await openpgp.encrypt({
+              message,
+              passwords: [passphrase], // multiple passwords possible later
+              format: "binary" // don't ASCII armor (for Uint8Array output)
+            });
+            encrypt = true;
+            newFile = new File([encrypted], filename + ".pgp", { type: "application/pgp-encrypted" });
+
+          }
+
+          dropzoneText.innerText = dispLabel + ': Uploading...';
+          const res = await fetch("https://transfr.one/" + newFile.name, {
+            method: "PUT",
+            body: newFile,
+            headers: {
+              "Content-Type": newFile.type,
+            }
+          });
+          const text = (await res.text()).trim();
+          console.log(text);
+          dropzoneResult.innerHTML = "Upload Finished<br/><a target=\"_blank\" href=\"" + text + "\">" + text + "</a>" +
+            " (deletes in 24 hours)<br/>" +
+            (!encrypt ? "" :
+            " It can be decrypted with the passphrase you used to encrypt it: <pre><code>curl " + text + " | gpg --pinentry-mode loopback -d -o " + filename + "</code></pre>");
+          dropzoneResult.style.display = "unset";
+
+        }).catch(e=>{
+          console.error(e);
+          alert("Error uploading file. Please try again.");
+          dropzoneResult.innerHTML = "<span color='red'>Error uploading file. Please try again later</span>";
+          dropzoneResult.style.display = "unset";
+        }).finally(() => {
+          dropzoneText.innerText = finalDropzoneText;
+        });
+        console.log(files, file);
+      });
+    });
+  </script>
+</head>
+
+<body class="stackedit">
+<div class="stackedit__html"><h1 id="transfr_one">transfr.one</h1>
+  <p style="margin-bottom: 0.6rem;">Dead-simple, encrypted, super-fast, temporary file transfer/piping server, for your browser, code and terminal.</p>
+  <button id="encrypt-btn" class="active">&nbsp;E2E Encrypted</button>
+  <br>
+  <p id="dropzone-result" style="display: none;font-size: 0.85rem;"><br /></p>
+  <p id="dropzone">
+    <span id="dropzone-text">Drop a file anywhere one the page to instantly upload,
+      or click this box to browse, or copy and paste a file or text with
+      <span class="key-btn">⌘</span>/<span class="key-btn">Ctrl</span>+<span class="key-btn">V</span>
+    </span><br />
+  </p>
+  <input type="file" id="file-input" style="display: none;">
+  <h2 id="upload-a-file">Upload a file</h2>
+  <h3 id="with-curl">With <code>curl</code></h3>
+  <pre class=" language-sh"><code class="prism  language-sh">curl --upload-file ./file.txt https://transfr.one
+</code></pre>
+  <p>Once the file is uploaded, the endpoint will return the uploaded file URL.</p>
+  <pre><code>https://transfr.one/22e3-63401de2/file.txt
+</code></pre>
+  <h4 id="with-customfilename">With a custom filename</h4>
+  <pre class=" language-sh"><code class="prism  language-sh">curl --upload-file ./file.txt https://transfr.one/my-file.txt
+</code></pre>
+  <h3 id="encrypt-with-gpg">Encryption with <code>gpg</code></h3>
+  <p>Files should be encrypted before upload to ensure privacy.</p>
+  <pre class=" language-sh"><code class="prism  language-sh">gpg -ac -o- file.txt | curl https://transfr.one/file.txt.pgp --data-binary @-
+</code></pre>
+  <p>This will prompt for a passphrase before starting the upload, that can then be used to decrypt the file.</p>
+  <p>Once the file is uploaded, the endpoint will return the uploaded file URL which can then be downloaded and
+    decrypted with gpg, or in the browser if the extension is .pgp</p>
+  <pre><code>curl https://transfr.one/22e3-63401de2/file.txt.pgp | gpg --pinentry-mode loopback -d -o decrypted.txt
+</code></pre>
+  <h3 id="with-javascripttypescript">With <code>javascript</code>/<code>typescript</code></h3>
+  <pre class=" language-javascript"><code class="prism  language-javascript"><span
+    class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">'https://transfr.one/file.txt'</span><span
+    class="token punctuation">,</span> <span class="token punctuation">{</span>
+    method<span class="token punctuation">:</span> <span class="token string">'PUT'</span><span
+      class="token punctuation">,</span>
+    body<span class="token punctuation">:</span> <span class="token keyword">new</span> <span class="token class-name">File</span><span
+      class="token punctuation">(</span><span class="token punctuation">[</span><span class="token string">'&lt;data goes here&gt;'</span><span
+      class="token punctuation">]</span><span class="token punctuation">,</span> <span
+      class="token string">'file.txt'</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+  <h3 id="with-python">With <code>python</code></h3>
+  <pre class=" language-python"><code class="prism  language-python"><span class="token keyword">import</span> requests
+
+<span class="token keyword">with</span> <span class="token builtin">open</span><span
+      class="token punctuation">(</span><span class="token string">'file.txt'</span><span
+      class="token punctuation">,</span> <span class="token string">'rb'</span><span class="token punctuation">)</span> <span
+      class="token keyword">as</span> f<span class="token punctuation">:</span>
+    data <span class="token operator">=</span> f<span class="token punctuation">.</span>read<span
+      class="token punctuation">(</span><span class="token punctuation">)</span>
+
+response <span class="token operator">=</span> requests<span class="token punctuation">.</span>put<span
+      class="token punctuation">(</span><span class="token string">'https://transfr.one/file.txt'</span><span
+      class="token punctuation">,</span> data<span class="token operator">=</span>data<span
+      class="token punctuation">)</span>
+</code></pre>
+  <h2 id="download-a-file">Download a file</h2>
+  <p>The file can simply be downloaded with the link returned from the endpoint. The link can be opened in a web browser
+    to download the file, alternatively:</p>
+  <h3 id="with-curl-1">With <code>curl</code></h3>
+  <pre><code>curl -L https://transfr.one/22e3-63401de2/file.txt &gt; file.txt
+</code></pre>
+  <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
+  <pre class=" language-javascript"><code class="prism  language-javascript"><span
+    class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">'https://transfr.one/22e3-63401de2/file.txt'</span><span
+    class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+  <h3 id="with-python-1">With <code>python</code></h3>
+  <pre class=" language-python"><code class="prism  language-python"><span class="token keyword">import</span> requests
+
+response <span class="token operator">=</span> requests<span class="token punctuation">.</span>get<span
+      class="token punctuation">(</span><span
+      class="token string">'https://transfr.one/22e3-63401de2/file.txt'</span><span class="token punctuation">)</span>
+</code></pre>
+  <h2 id="notes">Notes</h2>
+  <ul>
+    <li>Files are automatically deleted after <code>24 hours</code>.</li>
+    <li>Max file upload size is <code>20MB</code>.</li>
+    <li>This is a free service, please try not to abuse.</li>
+    <li>Powered by Cloudflare Workers. Check out the source code to host your own: <a
+      href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>
+  </ul>
+</div>
+</body>
+
+</html>
+

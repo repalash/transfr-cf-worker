@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>transfr.one</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+  <style>
+      #transfr_one {
+          margin-bottom: 2rem;
+      }
+      .if_encrypted{
+          display: ENCRYPTED_DISPLAY;
+      }
+      .if_not_encrypted{
+          display: NOT_ENCRYPTED_DISPLAY;
+      }
+      pre{
+          max-width: 100%;
+      }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.10.2/dist/openpgp.min.js"></script>
+  <script type="module">
+    function promptPassphrase() {
+      let passphrase = "";
+      let trial = 0;
+      while (trial < 3) {
+        passphrase = prompt("Enter passphrase to encrypt file with");
+        if (passphrase === null) return null;
+        return passphrase;
+        // trial++;
+      }
+      // alert("You can turn off encryption by clicking the 🔐 button.");
+      return null;
+    }
+
+    const resultText = document.getElementById("result_text");
+    let downloading = false;
+    document.addEventListener("DOMContentLoaded", () => {
+        if(IS_ENCRYPTED){
+          document.querySelector(".main-link-enc").addEventListener('click', async () => {
+            if(downloading) return;
+            downloading = true;
+            try {
+              const link = "FILE_LINK_RAW";
+              const passphrase = prompt("Enter passphrase to decrypt the file with");
+              if (passphrase === null) return;
+              resultText.innerText = "Downloading file...";
+              const encrypted = await (await fetch(link)).arrayBuffer();
+              resultText.innerText = "Decrypting file...";
+              const encryptedMessage = await openpgp.readMessage({
+                binaryMessage: new Uint8Array(encrypted) // parse encrypted bytes
+              });
+              const res = await openpgp.decrypt({
+                message: encryptedMessage,
+                passwords: [passphrase],
+                format: 'binary'
+              });
+              const file = new File([res.data], "FILE_NAME_RAW", {type: 'application/octet-stream'});
+              const url = URL.createObjectURL(file);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "FILE_NAME_RAW";
+              a.click();
+              resultText.innerText = "File downloaded.";
+              setTimeout(() => {
+                URL.revokeObjectURL(url);
+              }, 5000);
+            }catch (e) {
+              console.error(e)
+              resultText.innerText = "Error decrypting file, download the raw file instead.";
+            }finally {
+              downloading = false;
+            }
+          })
+        }
+    });
+  </script>
+</head>
+
+<body class="stackedit">
+<div class="stackedit__html"><h2 id="transfr_one">FILE_NAME (FILE_SIZE bytes)</h2>
+<!--  <p>Dead-simple, encrypted, super-fast, temporary file transfer/piping server, for your browser, code and terminal.</p>-->
+<!--  <p>Someone has shared a file with you: </p>-->
+  <span class="if_encrypted" id="result_text">The sender has encrypted this file, it needs to be decrypted to view.</span>
+  <p>
+    <a href="#" class="main-link main-link-enc if_encrypted">Download and Decrypt file</a>
+    <a href="FILE_LINK_RAW" class="main-link if_encrypted">Download Raw file</a>
+    <a href="FILE_LINK_RAW" class="main-link if_not_encrypted">Download file</a>
+  </p>
+
+  <p>The file can simply be downloaded with the link above or in terminal/code.</p>
+  <h3 id="with-curl-1">With <code>curl</code></h3>
+  <pre class="if_encrypted"><code>curl -L FILE_LINK &gt; FILE_NAME | gpg --pinentry-mode loopback -d -o FILE_NAME_RAW
+</code></pre>
+  <pre class="if_not_encrypted"><code>curl -L FILE_LINK &gt; FILE_NAME
+</code></pre>
+  <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
+  <pre class=" language-javascript"><code class="prism  language-javascript"><span
+    class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">'FILE_LINK'</span><span
+    class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+  <h3 id="with-python-1">With <code>python</code></h3>
+  <pre class=" language-python"><code class="prism  language-python"><span class="token keyword">import</span> requests
+
+response <span class="token operator">=</span> requests<span class="token punctuation">.</span>get<span
+      class="token punctuation">(</span><span
+      class="token string">'FILE_LINK'</span><span class="token punctuation">)</span>
+</code></pre>
+  <h2 id="notes">Notes</h2>
+  <ul>
+    <li><a href="https://transfr.one">transfr.one</a> is a simple, encrypted, super-fast, temporary file transfer/piping server, for your browser, code and terminal.</li>
+    <li>Files are automatically deleted after <code>24 hours</code>.</li>
+    <li>Max file upload size is <code>20MB</code>.</li>
+    <li>This is a free service, please try not to abuse.</li>
+    <li>Powered by Cloudflare Workers.
+      Check out the source code and host your own transfr worker: <a
+      href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>
+  </ul>
+</div>
+</body>
+
+</html>
+

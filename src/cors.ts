@@ -36,3 +36,9 @@ export function handleOptions(request: Request, allowMethods = 'GET, HEAD, POST,
     });
   }
 }
+
+export function setCorsHeaders(response: Response) {
+  Object.entries(corsHeaders).forEach(([key, val]) => {
+    response.headers.set(key, val);
+  });
+}

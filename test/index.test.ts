@@ -24,7 +24,7 @@ async function testPutThenGet(data: string) {
 	expect(result.status).toBe(200);
 
 	const text = await result.text();
-	expect(text).toMatch(/http:\/\/localhost:8787\/[a-f0-9]{4}-[a-f0-9]{8}\/file.txt/);
+	expect(text).toMatch(/http:\/\/localhost:8787\/[a-f0-9]{8}-[a-f0-9]{4}\/file.txt/);
 
 	// @ts-ignore
 	const waitUntils = await getMiniflareWaitUntil(ctx);
