@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{FILE_NAME}} - transfr.one</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css"/>
+  <style>
+      #transfr_one {
+          margin-bottom: 2rem;
+      }
+
+      .if_encrypted {
+          display: {{ENCRYPTED_DISPLAY}};
+      }
+
+      .if_not_encrypted {
+          display: {{NOT_ENCRYPTED_DISPLAY}};
+      }
+
+      pre {
+          max-width: 100%;
+      }
+
+      #result_text {
+          font-size: 0.9rem;
+      }
+  </style>
+  <script id="transfr-file" type="application/json">{{FILE_INFO_JSON}}</script>
+  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.10.2/dist/openpgp.min.js"
+          integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"
+          crossorigin="anonymous"></script>
+  <script type="module">
+    const file = JSON.parse(document.getElementById("transfr-file").textContent);
+    const ARMOR_HEADER = "-----BEGIN PGP MESSAGE-----";
+
+    /** Accepts both binary (`gpg -c`) and ASCII armored (`gpg -ac`) messages. */
+    async function readMessage(bytes) {
+      const head = new TextDecoder().decode(bytes.slice(0, ARMOR_HEADER.length));
+      if (head === ARMOR_HEADER) {
+        return openpgp.readMessage({armoredMessage: new TextDecoder().decode(bytes)});
+      }
+      return openpgp.readMessage({binaryMessage: bytes});
+    }
+
+    function saveFile(data, name) {
+      const url = URL.createObjectURL(new File([data], name, {type: "application/octet-stream"}));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const resultText = document.getElementById("result_text");
+      const decryptLink = document.querySelector(".main-link-enc");
+      if (!file.encrypted || !decryptLink) return;
+
+      let downloading = false;
+      decryptLink.addEventListener("click", async (e) => {
+        e.preventDefault();
+        if (downloading) return;
+        downloading = true;
+        try {
+          const passphrase = prompt("Enter passphrase to decrypt the file with");
+          if (passphrase === null) return;
+          resultText.innerText = "Downloading file...";
+          const res = await fetch(file.rawUrl);
+          if (!res.ok) throw new Error("Download failed: " + res.status);
+          const encrypted = new Uint8Array(await res.arrayBuffer());
+          resultText.innerText = "Decrypting file...";
+          const decrypted = await openpgp.decrypt({
+            message: await readMessage(encrypted),
+            passwords: [passphrase],
+            format: "binary",
+          });
+          saveFile(decrypted.data, file.decryptedName);
+          resultText.innerText = "File downloaded.";
+        } catch (err) {
+          console.error(err);
+          resultText.innerText = "Could not decrypt the file. Check the passphrase, " +
+            "or download the raw file and decrypt it with gpg.";
+        } finally {
+          downloading = false;
+        }
+      });
+    });
+  </script>
+</head>
+
+<body class="stackedit">
+<div class="stackedit__html">
+  <h2 id="transfr_one">{{FILE_NAME}}</h2>
+  <p>{{FILE_SIZE_LABEL}}</p>
+  <p class="if_encrypted" id="result_text">The sender has encrypted this file, it needs to be decrypted to view.</p>
+  <p>
+    <a href="#" class="main-link main-link-enc if_encrypted">Download and decrypt file</a>
+    <a href="{{FILE_LINK_RAW}}" class="main-link if_encrypted" download="{{FILE_NAME}}">Download raw file</a>
+    <a href="{{FILE_LINK_RAW}}" class="main-link if_not_encrypted" download="{{FILE_NAME}}">Download file</a>
+  </p>
+
+  <p>The file can simply be downloaded with the link above or in terminal/code.</p>
+  <h3 id="with-curl-1">With <code>curl</code></h3>
+  <pre class="if_encrypted"><code>curl -L {{FILE_LINK}} | gpg --pinentry-mode loopback -d -o {{FILE_NAME_RAW}}
+</code></pre>
+  <pre class="if_not_encrypted"><code>curl -L {{FILE_LINK}} -o {{FILE_NAME}}
+</code></pre>
+  <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
+  <pre class=" language-javascript"><code class="prism  language-javascript"><span
+    class="token function">fetch</span><span class="token punctuation">(</span><span
+    class="token string">'{{FILE_LINK}}'</span><span
+    class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+  <h3 id="with-python-1">With <code>python</code></h3>
+  <pre class=" language-python"><code class="prism  language-python"><span class="token keyword">import</span> requests
+
+response <span class="token operator">=</span> requests<span class="token punctuation">.</span>get<span
+      class="token punctuation">(</span><span
+      class="token string">'{{FILE_LINK}}'</span><span class="token punctuation">)</span>
+</code></pre>
+  <h2 id="notes">Notes</h2>
+  <ul>
+    <li><a href="{{HOME_LINK}}">transfr.one</a> is a simple, encrypted, super-fast, temporary file transfer/piping
+      server, for your browser, code and terminal.
+    </li>
+    <li>Files are automatically deleted after <code>{{TTL_LABEL}}</code>.</li>
+    <li>This file expires <code>{{EXPIRES_LABEL}}</code>.</li>
+    <li>This is a free service, please try not to abuse.</li>
+    <li>Powered by Cloudflare Workers.
+      Check out the source code and host your own transfr worker: <a
+        href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>
+  </ul>
+</div>
+</body>
+
+</html>
