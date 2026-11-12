@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Redeploy main by hand, e.g. after rotating the token.
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -17,3 +22,34 @@ jobs:
       - run: npm install --no-audit --no-fund --legacy-peer-deps
       - run: npm run typecheck
       - run: npm test
+
+  # Deploys main to Cloudflare once the tests pass. Never runs for pull requests.
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Never cancel a deploy halfway; a newer push waits for it instead.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      # A token scoped to the transfr-cf Worker (Editor) can't look the
+      # account up itself, so the account ID is passed in too.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check deploy secrets
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund --legacy-peer-deps
+      - run: npm run deploy

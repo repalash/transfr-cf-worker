@@ -94,6 +94,23 @@ and log in with `wrangler login`.
    npm run deploy
    ```
 
+### Continuous deployment
+
+CI (`.github/workflows/ci.yml`) runs the type check and tests on every pull
+request and push, and deploys `main` with `wrangler deploy` once they pass. It
+can also be run by hand from the Actions tab (`workflow_dispatch`). It needs two
+repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`: an account-owned API token (Manage Account > Account
+  API Tokens) scoped to Specified Workers > `transfr-cf` with the Editor role.
+  If a Worker-scoped token can't be created, use one with Account > Workers
+  Scripts: Edit instead. Routes are mapped on the dashboard, so no zone
+  permission is needed.
+- `CLOUDFLARE_ACCOUNT_ID`: the account ID, shown on the Workers overview page.
+
+The worker name in `wrangler.toml` (`transfr-cf`) has to match the deployed
+worker, or a deploy creates a second worker instead of updating it.
+
 ### Configuration
 
 Variables in `wrangler.toml` under `[vars]`:
