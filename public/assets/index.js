@@ -14,17 +14,29 @@ function promptPassphrase() {
   return null;
 }
 
+// The server accepts names up to 256 characters and 960 once percent encoded.
+// Stay well inside both, leaving room for the ".pgp" an encrypted upload adds.
+const MAX_NAME_CHARS = 200;
+const MAX_ENCODED_NAME_CHARS = 900;
+
 /**
  * Strips directories and keeps letters and digits of any script, so the name
  * is safe in a URL and in a shell command without mangling non-English names.
+ * A name too long for the server is shortened, keeping its extension.
  */
 function safeFilename(name) {
   const base = name.normalize("NFC").split("/").pop().split("\\").pop();
   const dot = base.lastIndexOf(".");
   const clean = (part) => part.replace(/[^\p{L}\p{N}_]+/gu, "-");
-  const stem = clean(dot > 0 ? base.slice(0, dot) : base).replace(/^-+|-+$/g, "") || "file";
-  const ext = clean(dot > 0 ? base.slice(dot + 1) : "");
-  return ext ? stem + "." + ext : stem;
+  // Arrays of whole characters, so shortening never splits one in half.
+  const stem = Array.from(clean(dot > 0 ? base.slice(0, dot) : base).replace(/^-+|-+$/g, "") || "file");
+  const ext = Array.from(clean(dot > 0 ? base.slice(dot + 1) : "")).slice(0, 16).join("");
+  const build = () => stem.join("") + (ext ? "." + ext : "");
+  while (stem.length > 1 &&
+    (build().length > MAX_NAME_CHARS || encodeURIComponent(build()).length > MAX_ENCODED_NAME_CHARS)) {
+    stem.pop();
+  }
+  return build();
 }
 
 function formatBytes(bytes) {

@@ -1,7 +1,13 @@
 import type { Env } from "./env"
 
-/** Longest accepted URL path (the file name) for an upload. */
+/** Longest accepted file name for an upload, in characters once decoded. */
 export const MAX_FILENAME_LENGTH = 256
+/**
+ * Longest accepted file name as it travels in the URL, percent encoded. A
+ * non-ASCII character takes up to twelve characters there, and the encoded name
+ * is part of the object key, which R2 limits to 1024 bytes.
+ */
+export const MAX_ENCODED_FILENAME_LENGTH = 960
 
 const DEFAULT_MAX_FILE_SIZE_BYTES = 21_000_000 // 20 MB
 /**

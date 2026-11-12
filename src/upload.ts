@@ -1,4 +1,4 @@
-import { type Config, MAX_FILENAME_LENGTH } from "./config"
+import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
 import { textResponse } from "./http"
 import { createObjectKey, decodeFilename } from "./keys"
 import { sanitizeContentType } from "./mime"
@@ -119,7 +119,9 @@ function validateFilename(filename: string, url: URL): Response | null {
   if (filename.length < 1) {
     return textResponse(`No filename, pass a filename into the url, like: ${url.origin}/filename.txt \n`, 400)
   }
-  if (filename.length > MAX_FILENAME_LENGTH) {
+  // Counted decoded, so a name in a non-Latin script gets as many characters
+  // as an ASCII one; the encoded form has its own, storage driven, limit.
+  if (decodeFilename(filename).length > MAX_FILENAME_LENGTH || filename.length > MAX_ENCODED_FILENAME_LENGTH) {
     return textResponse(`Filename too long, max ${MAX_FILENAME_LENGTH} characters\n`, 400)
   }
   if (!isSafeFilename(filename)) {

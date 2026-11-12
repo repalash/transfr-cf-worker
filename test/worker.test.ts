@@ -119,6 +119,24 @@ describe("upload", () => {
     expect(await response.text()).toContain("Filename too long")
   })
 
+  it("counts a non-ASCII file name in characters, not in its encoded length", async () => {
+    // 30 characters, but 274 once percent encoded.
+    const name = `${"日".repeat(30)}.txt`
+    const { response, key } = await upload(`/${encodeURIComponent(name)}`, "data")
+    expect(response.status).toBe(200)
+    expect(await (await bucket().get(key))?.text()).toBe("data")
+
+    const tooManyCharacters = await upload(`/${encodeURIComponent("日".repeat(257))}`, "data")
+    expect(tooManyCharacters.response.status).toBe(400)
+  })
+
+  it("rejects a name whose encoded form would not fit in an object key", async () => {
+    // 120 characters is fine decoded, but 1080 encoded.
+    const { response, url } = await upload(`/${encodeURIComponent("日".repeat(120))}`, "data")
+    expect(response.status).toBe(400)
+    expect(url).toContain("Filename too long")
+  })
+
   it("rejects dot and empty path segments", async () => {
     // URL parsing already resolves dot segments (even percent encoded ones),
     // so empty segments are what can actually reach the handler.
