@@ -18,9 +18,9 @@ Check it out: https://transfr.one
 
 ```sh
 curl --upload-file ./file.txt https://transfr.one/file.txt
-# https://transfr.one/68d0f3a2-3f1c9b27d4e0/file.txt
+# https://transfr.one/3f1c9b27d4e0-68d0f3a2/file.txt
 
-curl -L https://transfr.one/68d0f3a2-3f1c9b27d4e0/file.txt > file.txt
+curl -L https://transfr.one/3f1c9b27d4e0-68d0f3a2/file.txt > file.txt
 ```
 
 Encrypt before uploading to keep the contents private from the server:
@@ -29,7 +29,7 @@ Encrypt before uploading to keep the contents private from the server:
 gpg -c -o- file.txt | curl https://transfr.one/file.txt.pgp --data-binary @-
 ```
 
-Object keys are `<expiry-hex>-<random-hex>/<file name>`. The expiry is part of
+Object keys are `<random-hex>-<expiry-hex>/<file name>`. The expiry is part of
 the key, so the worker stops serving a file on time even though R2 lifecycle
 rules only delete once a day; the 6 random bytes are the only secret protecting
 a file, so treat the URL like a password.

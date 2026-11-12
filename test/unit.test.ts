@@ -10,8 +10,16 @@ describe("keys", () => {
     const now = 1_700_000_000_000
     const { key, expiresAt } = createObjectKey("file.txt", 86_400, now)
     expect(expiresAt).toBe(1_700_000_000 + 86_400)
-    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{12}\/file\.txt$/)
+    expect(key).toMatch(/^[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
     expect(parseExpiry(key)).toBe(expiresAt)
+  })
+
+  it("still reads the expiry of links made by earlier versions", () => {
+    // Earlier versions used the same layout with one to four random digits.
+    expect(parseExpiry("22e3-63401de2/file.txt")).toBe(0x63401de2)
+    expect(parseExpiry("7-63401de2/file.txt")).toBe(0x63401de2)
+    expect(isExpired("22e3-63401de2/file.txt", (0x63401de2 - 1) * 1000)).toBe(false)
+    expect(isExpired("22e3-63401de2/file.txt", 0x63401de2 * 1000)).toBe(true)
   })
 
   it("does not repeat keys", () => {
@@ -34,7 +42,7 @@ describe("keys", () => {
   })
 
   it("extracts and decodes the file name", () => {
-    expect(filenameFromKey("68d0f3a2-3f1c9b27d4e0/dir/file.txt")).toBe("dir/file.txt")
+    expect(filenameFromKey("3f1c9b27d4e0-68d0f3a2/dir/file.txt")).toBe("dir/file.txt")
     expect(filenameFromKey("file.txt")).toBe("file.txt")
     expect(decodeFilename("my%20file.txt")).toBe("my file.txt")
     expect(decodeFilename("100%.txt")).toBe("100%.txt")

@@ -73,7 +73,7 @@ describe("upload", () => {
   it("stores the file and returns its URL", async () => {
     const { response, url } = await upload("/file.txt", "Hello, world!", { "content-type": "text/plain" })
     expect(response.status).toBe(200)
-    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{12}\/file\.txt$/)
+    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
   })
 
   it("makes the file readable as soon as the URL is returned", async () => {
@@ -293,14 +293,14 @@ describe("download", () => {
 
   it("404s for an unknown key", async () => {
     const response = await call(
-      new Request("https://transfr.test/68d0f3a2-3f1c9b27d4e0/nope.txt", { headers: { "user-agent": CURL_UA } }),
+      new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: { "user-agent": CURL_UA } }),
     )
     expect(response.status).toBe(404)
     expect(await response.text()).toBe("Not Found\n")
   })
 
   it("refuses to serve an expired key and deletes the object", async () => {
-    const expired = `${(Math.floor(Date.now() / 1000) - 10).toString(16)}-abcdef012345/old.txt`
+    const expired = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
     await bucket().put(expired, "stale")
 
     const response = await call(
@@ -308,6 +308,19 @@ describe("download", () => {
     )
     expect(response.status).toBe(404)
     expect(await bucket().head(expired)).toBeNull()
+  })
+
+  it("still serves a link made by an earlier version until it expires", async () => {
+    // Earlier versions put one to four random digits before the expiry.
+    const legacy = `22e3-${(Math.floor(Date.now() / 1000) + 3600).toString(16)}/old.txt`
+    await bucket().put(legacy, "still here")
+
+    const response = await call(
+      new Request(`https://transfr.test/${legacy}`, { headers: { "user-agent": CURL_UA } }),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("still here")
+    expect(await bucket().head(legacy)).not.toBeNull()
   })
 })
 
@@ -347,7 +360,7 @@ describe("access page", () => {
 
   it("404s for a browser hitting a missing file", async () => {
     const response = await call(
-      new Request("https://transfr.test/68d0f3a2-3f1c9b27d4e0/nope.txt", { headers: { "user-agent": BROWSER_UA } }),
+      new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: { "user-agent": BROWSER_UA } }),
     )
     expect(response.status).toBe(404)
   })
