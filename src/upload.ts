@@ -3,20 +3,21 @@ import { textResponse } from "./http"
 import { createObjectKey, decodeFilename } from "./keys"
 import { sanitizeContentType } from "./mime"
 
+/** A multipart form adds boundaries and part headers around the file. */
+const FORM_OVERHEAD_BYTES = 64 * 1024
+
 export async function handleUpload(request: Request, url: URL, config: Config): Promise<Response> {
-  const filename = url.pathname.replace(/^\/+/, "")
+  const pathName = url.pathname.replace(/^\/+/, "")
+  const contentType = request.headers.get("content-type")
+  const isForm = /^multipart\/form-data\b/i.test(contentType ?? "")
 
-  if (filename.length < 1) {
-    return textResponse(`No filename, pass a filename into the url, like: ${url.origin}/filename.txt \n`, 400)
+  // A form upload may leave the name to the file inside the form.
+  if (!(isForm && pathName === "")) {
+    const invalid = validateFilename(pathName, url)
+    if (invalid) return invalid
   }
-  if (filename.length > MAX_FILENAME_LENGTH) {
-    return textResponse(`Filename too long, max ${MAX_FILENAME_LENGTH} characters\n`, 400)
-  }
-  if (!isSafeFilename(filename)) {
-    return textResponse("Invalid filename\n", 400)
-  }
-
   if (!request.body) return emptyBody()
+  if (isForm) return await handleFormUpload(request, request.body, url, pathName, config)
 
   const declared = parseContentLength(request.headers.get("content-length"))
   if (declared === 0) return emptyBody()
@@ -28,17 +29,7 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
   // body streams straight into R2, so the size limit is not bounded by the
   // Worker's memory; without one (a chunked upload, e.g. `curl -T -`) the body
   // has to be read into memory first, under a lower limit.
-  let body: ReadableStream | Uint8Array
-  let bodyError: unknown = null
-  if (declared !== null) {
-    // FixedLengthStream gives R2 the length, and errors (failing the put) if
-    // the body turns out shorter or longer than declared.
-    const { readable, writable } = new FixedLengthStream(declared)
-    request.body.pipeTo(writable).catch((error: unknown) => {
-      bodyError = error
-    })
-    body = readable
-  } else {
+  if (declared === null) {
     const buffered = await readAtMost(request.body, config.maxBufferedFileSizeBytes)
     if (buffered === null) {
       return textResponse(
@@ -50,26 +41,108 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
       )
     }
     if (buffered.byteLength < 1) return emptyBody()
-    body = buffered
+    return await store(pathName, buffered, contentType, url, config)
   }
 
+  // FixedLengthStream gives R2 the length, and errors (failing the put) if the
+  // body turns out shorter or longer than declared.
+  const { readable, writable } = new FixedLengthStream(declared)
+  let bodyError: unknown = null
+  request.body.pipeTo(writable).catch((error: unknown) => {
+    bodyError = error
+  })
+  try {
+    return await store(pathName, readable, contentType, url, config)
+  } catch (error) {
+    if (isLengthMismatch(error)) {
+      return textResponse(`Upload incomplete: the body did not match its Content-Length of ${declared}\n`, 400)
+    }
+    // Either the client went away or R2 failed, and the two cannot be told
+    // apart reliably here. Say what is known and let it surface as a 500, so a
+    // storage problem is never written off as the client's.
+    console.error("streamed upload failed", { declared, bodyError })
+    throw error
+  }
+}
+
+/**
+ * `curl -F file=@name` and HTML forms wrap the file in a multipart body. The
+ * file is taken out of it, so what gets stored is the file and not the form.
+ * Parsing needs the whole body in memory, hence the buffered size limit.
+ */
+async function handleFormUpload(
+  request: Request,
+  body: ReadableStream<Uint8Array>,
+  url: URL,
+  pathName: string,
+  config: Config,
+): Promise<Response> {
+  const limit = config.maxBufferedFileSizeBytes
+  const tooLarge = () =>
+    textResponse(
+      `Invalid file size: form uploads (curl -F) are limited to ${limit}. ` +
+        `Upload the file itself (curl --upload-file) for up to ${config.maxFileSizeBytes}\n`,
+      413,
+    )
+
+  const declared = parseContentLength(request.headers.get("content-length"))
+  if (declared !== null && declared > limit + FORM_OVERHEAD_BYTES) return tooLarge()
+  const raw = await readAtMost(body, limit + FORM_OVERHEAD_BYTES)
+  if (raw === null) return tooLarge()
+
+  let file: File | undefined
+  try {
+    const form = await new Response(raw, { headers: { "content-type": request.headers.get("content-type") ?? "" } }).formData()
+    for (const value of form.values()) {
+      if (typeof value !== "string") {
+        file = value
+        break
+      }
+    }
+  } catch {
+    return textResponse("Could not read the form. Upload the file itself instead: curl --upload-file\n", 400)
+  }
+  if (!file) {
+    return textResponse("No file in the form. Send one with: curl -F file=@name, or curl --upload-file name\n", 400)
+  }
+  if (file.size < 1) return emptyBody()
+  if (file.size > limit) return tooLarge()
+
+  const filename = pathName || encodeURIComponent(file.name)
+  const invalid = validateFilename(filename, url)
+  if (invalid) return invalid
+  return await store(filename, new Uint8Array(await file.arrayBuffer()), file.type, url, config)
+}
+
+/** Null if the name can be stored, otherwise the response explaining why not. */
+function validateFilename(filename: string, url: URL): Response | null {
+  if (filename.length < 1) {
+    return textResponse(`No filename, pass a filename into the url, like: ${url.origin}/filename.txt \n`, 400)
+  }
+  if (filename.length > MAX_FILENAME_LENGTH) {
+    return textResponse(`Filename too long, max ${MAX_FILENAME_LENGTH} characters\n`, 400)
+  }
+  if (!isSafeFilename(filename)) {
+    return textResponse("Invalid filename\n", 400)
+  }
+  return null
+}
+
+async function store(
+  filename: string,
+  body: ReadableStream | Uint8Array,
+  contentType: string | null,
+  url: URL,
+  config: Config,
+): Promise<Response> {
   const { key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds)
 
   // Awaited rather than deferred with waitUntil: the URL is returned to the
   // client, so the object has to be readable by the time it is.
-  try {
-    await config.bucket.put(key, body, {
-      httpMetadata: { contentType: sanitizeContentType(request.headers.get("content-type")) },
-      customMetadata: { expiresAt: String(expiresAt) },
-    })
-  } catch (error) {
-    // A body that broke off or did not match its Content-Length is the
-    // client's problem; anything else is ours.
-    if (declared !== null && (bodyError !== null || isLengthMismatch(error))) {
-      return textResponse(`Upload incomplete: the body did not match its Content-Length of ${declared}\n`, 400)
-    }
-    throw error
-  }
+  await config.bucket.put(key, body, {
+    httpMetadata: { contentType: sanitizeContentType(contentType) },
+    customMetadata: { expiresAt: String(expiresAt) },
+  })
 
   return textResponse(`${url.origin}/${key}\n`)
 }

@@ -5,6 +5,12 @@ import worker from "../src/index"
 
 const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 const CURL_UA = "curl/8.4.0"
+/** What a browser sends when the link is opened in a tab. */
+const NAVIGATION = {
+  "user-agent": BROWSER_UA,
+  "sec-fetch-dest": "document",
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 function bucket(): R2Bucket {
   return env[env.R2_DEFAULT_NAMESPACE] as R2Bucket
@@ -48,9 +54,15 @@ describe("landing page", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
     expect(response.headers.get("content-security-policy")).toContain("default-src 'none'")
+    // Indexable, unlike the file pages.
+    expect(response.headers.get("x-robots-tag")).toBeNull()
 
     const html = await response.text()
     expect(html).toContain("<title>transfr.one</title>")
+    // Scripts, styles and fonts come from this origin only, and none inline.
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'self';")
+    expect(html).not.toMatch(/<(script|link)[^>]*(src|href)="https?:/)
+    expect(html).not.toMatch(/<script(?![^>]*(\ssrc=|type="application\/json"))/)
     // Every template token is filled in.
     expect(html).not.toContain("{{")
     // The page is told the real limits by the worker.
@@ -204,6 +216,44 @@ describe("upload", () => {
     expect((await bucket().list()).objects).toHaveLength(0)
   })
 
+  it("stores the file from a multipart form, not the form itself", async () => {
+    const form = new FormData()
+    form.append("note", "ignored text field")
+    form.append("file", new File(["Hello, form!"], "local-name.txt", { type: "text/plain" }))
+    const { response, url, key } = await upload("/form.txt", form)
+
+    expect(response.status).toBe(200)
+    expect(url).toMatch(/\/form\.txt$/)
+    const stored = await bucket().get(key)
+    expect(await stored?.text()).toBe("Hello, form!")
+    expect(stored?.httpMetadata?.contentType).toBe("text/plain")
+  })
+
+  it("names a form upload after its file when the URL has no name", async () => {
+    const form = new FormData()
+    form.append("file", new File(["data"], "my report.txt"))
+    const { response, url } = await upload("/", form)
+    expect(response.status).toBe(200)
+    expect(url).toMatch(/\/my%20report\.txt$/)
+  })
+
+  it("rejects a form without a file, and a form that is too large", async () => {
+    const empty = new FormData()
+    empty.append("note", "just text")
+    const noFile = await upload("/form.txt", empty)
+    expect(noFile.response.status).toBe(400)
+    expect(noFile.url).toContain("No file in the form")
+
+    const big = new FormData()
+    big.append("file", new File(["x".repeat(200)], "big.txt"))
+    const response = await call(new Request("https://transfr.test/big.txt", { method: "POST", body: big }), {
+      R2_MAX_BUFFERED_FILE_SIZE_BYTES: "100",
+    })
+    expect(response.status).toBe(413)
+    expect(await response.text()).toContain("curl --upload-file")
+    expect((await bucket().list()).objects).toHaveLength(0)
+  })
+
   it("never buffers more than the overall limit", async () => {
     const response = await call(
       new Request("https://transfr.test/chunked.txt", { method: "PUT", body: chunked("012345", "6789ab") }),
@@ -239,7 +289,7 @@ describe("download", () => {
     const { url } = await upload("/page.html", "<script>alert(1)</script>", { "content-type": "text/html" })
     const response = await call(new Request(`${url}?raw=1`, { headers: { "user-agent": BROWSER_UA } }))
     expect(response.headers.get("content-disposition")).toMatch(/^attachment; filename="page.html"/)
-    expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox")
+    expect(response.headers.get("content-security-policy")).toMatch(/^default-src 'none'; .*sandbox$/)
   })
 
   it("lets images be displayed inline", async () => {
@@ -269,6 +319,55 @@ describe("download", () => {
     expect(response.headers.get("content-range")).toBe("bytes 2-5/10")
     expect(response.headers.get("content-length")).toBe("4")
     expect(await response.text()).toBe("2345")
+  })
+
+  it("answers a range from the first byte with 206", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    const response = await call(new Request(url, { headers: { range: "bytes=0-", "user-agent": CURL_UA } }))
+    expect(response.status).toBe(206)
+    expect(response.headers.get("content-range")).toBe("bytes 0-9/10")
+    expect(await response.text()).toBe("0123456789")
+  })
+
+  it("answers a range past the end of the file with 416", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    const response = await call(new Request(url, { headers: { range: "bytes=10-", "user-agent": CURL_UA } }))
+    expect(response.status).toBe(416)
+    expect(response.headers.get("content-range")).toBe("bytes */10")
+  })
+
+  it("clamps a range that runs past the end of the file", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    for (const [range, contentRange, body] of [
+      ["bytes=8-100", "bytes 8-9/10", "89"],
+      ["bytes=-100", "bytes 0-9/10", "0123456789"],
+    ]) {
+      const response = await call(new Request(url, { headers: { range, "user-agent": CURL_UA } }))
+      expect(response.status, range).toBe(206)
+      expect(response.headers.get("content-range"), range).toBe(contentRange)
+      expect(await response.text(), range).toBe(body)
+    }
+  })
+
+  it("ignores a Range header it does not understand and sends the whole file", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    for (const range of ["bytes=abc", "bytes=0-1,4-5", "bytes=5-2", "lines=1-2", "bytes=-"]) {
+      const response = await call(new Request(url, { headers: { range, "user-agent": CURL_UA } }))
+      expect(response.status, range).toBe(200)
+      expect(await response.text(), range).toBe("0123456789")
+    }
+  })
+
+  it("keeps files out of search engines and lets the browser's own viewers show media", async () => {
+    const { url } = await upload("/clip.mp4", "not really a video", { "content-type": "video/mp4" })
+    const response = await call(new Request(url, { headers: { "user-agent": CURL_UA } }))
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    expect(response.headers.get("content-disposition")).toMatch(/^inline;/)
+    const csp = response.headers.get("content-security-policy") ?? ""
+    expect(csp).toContain("default-src 'none'")
+    expect(csp).toContain("media-src 'self'")
+    expect(csp).toContain("sandbox")
+    expect(csp).not.toContain("script-src")
   })
 
   it("serves a suffix range", async () => {
@@ -325,9 +424,9 @@ describe("download", () => {
 })
 
 describe("access page", () => {
-  it("is served to browsers instead of the bytes", async () => {
+  it("is served to a browser opening the link instead of the bytes", async () => {
     const { url } = await upload("/notes.txt", "Hello, world!", { "content-type": "text/plain" })
-    const response = await call(new Request(url, { headers: { "user-agent": BROWSER_UA } }))
+    const response = await call(new Request(url, { headers: NAVIGATION }))
 
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
@@ -341,7 +440,7 @@ describe("access page", () => {
 
   it("offers decryption for a .pgp file", async () => {
     const { url } = await upload("/secret.txt.pgp", "encrypted bytes")
-    const html = await call(new Request(url, { headers: { "user-agent": BROWSER_UA } })).then((r) => r.text())
+    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
     expect(html).toContain(".if_encrypted {\n          display: block;")
     expect(html).toContain('"encrypted":true')
     expect(html).toContain('"decryptedName":"secret.txt"')
@@ -350,7 +449,7 @@ describe("access page", () => {
   it("escapes the file name instead of injecting it into the page", async () => {
     const nasty = `"><img src=x onerror=alert(1)>.txt`
     const { url } = await upload(`/${encodeURIComponent(nasty)}`, "data")
-    const html = await call(new Request(url, { headers: { "user-agent": BROWSER_UA } })).then((r) => r.text())
+    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
 
     expect(html).not.toContain("<img src=x")
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
@@ -358,9 +457,65 @@ describe("access page", () => {
     expect(html).toContain('\\u003cimg src=x onerror=alert(1)\\u003e')
   })
 
+  it("is not indexed and varies on what the request is for", async () => {
+    const { url } = await upload("/notes.txt", "Hello, world!")
+    const response = await call(new Request(url, { headers: NAVIGATION }))
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    expect(response.headers.get("vary")).toBe("Sec-Fetch-Dest, Accept")
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'self';")
+  })
+
+  it("gives fetch(), <img> and <video> in a browser the bytes, not the page", async () => {
+    const { url } = await upload("/notes.txt", "Hello, world!", { "content-type": "text/plain" })
+    for (const destination of ["empty", "image", "video", "audio", "iframe"]) {
+      const response = await call(
+        new Request(url, { headers: { "user-agent": BROWSER_UA, "sec-fetch-dest": destination, accept: "*/*" } }),
+      )
+      expect(await response.text(), destination).toBe("Hello, world!")
+    }
+  })
+
+  it("falls back to the Accept header for clients that send no Sec-Fetch-Dest", async () => {
+    const { url } = await upload("/notes.txt", "Hello, world!", { "content-type": "text/plain" })
+    const page = await call(new Request(url, { headers: { "user-agent": BROWSER_UA, accept: "text/html,*/*;q=0.8" } }))
+    expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    // A browser-like User-Agent alone no longer gets the page.
+    const bytes = await call(new Request(url, { headers: { "user-agent": BROWSER_UA, accept: "*/*" } }))
+    expect(await bytes.text()).toBe("Hello, world!")
+  })
+
+  it("quotes the uploader's file name and link in the commands it shows", async () => {
+    const { url } = await upload("/a;id;$(whoami)'x.txt", "data")
+    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
+
+    // In single quotes the shell interprets nothing; a quote in the value is
+    // closed, escaped and reopened. All of it is HTML escaped on the page.
+    const Q = "&#39;"
+    const quotedName = `${Q}a;id;$(whoami)${Q}\\${Q}${Q}x.txt${Q}`
+    const quotedUrl = `${Q}${url.replace("'", `${Q}\\${Q}${Q}`)}${Q}`
+    expect(html).toContain(`curl -L ${quotedUrl} -o ${quotedName}`)
+    // The code snippets get a double quoted string literal.
+    expect(html).toContain(`&quot;${url.replace("'", Q)}&quot;`)
+    // Nowhere does the raw name follow a command unquoted.
+    expect(html).not.toContain("-o a;id")
+    expect(html).not.toContain(`curl -L ${url.split("'")[0]}`)
+  })
+
+  it("leaves an ordinary file name and link unquoted in the commands", async () => {
+    const { url } = await upload("/notes.txt", "data")
+    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
+    expect(html).toContain(`curl -L ${url} -o notes.txt`)
+  })
+
+  it("saves to the file name only, never to a path from the link", async () => {
+    const { url } = await upload("/some/dir/notes.txt", "data")
+    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
+    expect(html).toContain(`curl -L ${url} -o notes.txt`)
+  })
+
   it("404s for a browser hitting a missing file", async () => {
     const response = await call(
-      new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: { "user-agent": BROWSER_UA } }),
+      new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: NAVIGATION }),
     )
     expect(response.status).toBe(404)
   })
@@ -368,7 +523,7 @@ describe("access page", () => {
   it("is skipped for hosts listed in RAW_ONLY_HOSTS", async () => {
     const { key } = await upload("/file.txt", "Hello, world!")
     const response = await call(
-      new Request(`https://bee.transfr.test/${key}`, { headers: { "user-agent": BROWSER_UA } }),
+      new Request(`https://bee.transfr.test/${key}`, { headers: NAVIGATION }),
       { RAW_ONLY_HOSTS: "bee.transfr.test" },
     )
     expect(response.status).toBe(200)

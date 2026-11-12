@@ -7,6 +7,17 @@ import { renderAccessPage, renderIndexPage } from "./pages"
 
 const EXPOSED_HEADERS = "Content-Length, Content-Range, Content-Type, Content-Disposition, ETag, Last-Modified"
 const MAX_BROWSER_CACHE_SECONDS = 86_400
+/** Shared files are private to whoever has the link; keep them out of search engines. */
+const NO_INDEX = "noindex, nofollow"
+/** The same link answers with the file page or the bytes depending on these. */
+const VARY_ON_REQUEST_TYPE = "Sec-Fetch-Dest, Accept"
+/**
+ * Uploads are untrusted content served from this origin. `sandbox` and
+ * `default-src 'none'` stop anything in them from running or loading; the
+ * exceptions are what the browser's own image, audio and video viewers need to
+ * show the file itself.
+ */
+const FILE_CSP = "default-src 'none'; img-src 'self' data:; media-src 'self' data:; style-src 'unsafe-inline'; sandbox"
 
 export async function handleDownload(
   request: Request,
@@ -36,12 +47,18 @@ export async function handleDownload(
     return new Response(null, { status: 200, headers: objectHeaders(object, key) })
   }
 
+  // A Range header that is not a single byte range is ignored, as HTTP allows.
+  const requestedRange = parseRange(request.headers.get("range"))
+
   let object: R2Object | R2ObjectBody | null
   try {
-    // Passing the request headers lets R2 handle Range and conditional requests.
-    object = await config.bucket.get(key, { range: request.headers, onlyIf: request.headers })
+    // R2 evaluates the conditional headers (If-None-Match and friends) itself.
+    object = await config.bucket.get(key, { range: requestedRange ?? undefined, onlyIf: request.headers })
   } catch (error) {
-    if (request.headers.has("range")) return await rangeNotSatisfiable(key, config)
+    // R2 throws for a range that starts past the end of the object. Anything
+    // else is a real failure and must not be reported as the client's.
+    const unsatisfiable = requestedRange ? await rangeNotSatisfiable(key, requestedRange, config) : null
+    if (unsatisfiable) return unsatisfiable
     throw error
   }
   if (!object) return notFound()
@@ -55,8 +72,8 @@ export async function handleDownload(
     return new Response(null, { status: notModified ? 304 : 412, headers })
   }
 
-  const range = resolveRange(object.range, object.size)
-  if (request.headers.has("range") && range && (range.offset > 0 || range.length < object.size)) {
+  const range = requestedRange ? resolveRange(object.range ?? requestedRange, object.size) : null
+  if (range) {
     headers.set("Content-Length", String(range.length))
     headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${object.size}`)
     return new Response(body, { status: 206, headers })
@@ -65,10 +82,19 @@ export async function handleDownload(
   return new Response(body, { status: 200, headers })
 }
 
-/** Browsers get the landing page; curl, scripts and `?raw` get the bytes. */
+/**
+ * Only a browser navigating to the link gets the file page. Everything else
+ * gets the bytes: curl and scripts, and also `fetch()`, `<img>` and `<video>`
+ * in a browser, which is why the User-Agent is not what decides.
+ */
 function prefersAccessPage(request: Request, url: URL, config: Config): boolean {
   if (config.rawOnlyHosts.includes(url.hostname.toLowerCase())) return false
-  return (request.headers.get("user-agent") ?? "").includes("Mozilla")
+  // Sent by every current browser: "document" for a navigation, "empty" for
+  // fetch(), "image", "video", ... for embeds.
+  const destination = request.headers.get("sec-fetch-dest")
+  if (destination !== null) return destination === "document"
+  // Older browsers and link previewers: a page is wanted if HTML is asked for.
+  return (request.headers.get("accept") ?? "").toLowerCase().includes("text/html")
 }
 
 async function accessPageResponse(key: string, url: URL, config: Config): Promise<Response> {
@@ -92,6 +118,7 @@ async function accessPageResponse(key: string, url: URL, config: Config): Promis
       expiresAt: parseExpiry(key),
       ttlSeconds: config.fileTtlSeconds,
     }),
+    { extraHeaders: { "X-Robots-Tag": NO_INDEX, Vary: VARY_ON_REQUEST_TYPE } },
   )
 }
 
@@ -108,8 +135,10 @@ function objectHeaders(object: R2Object, key: string): Headers {
     // sniff a type of its own.
     "Content-Disposition": contentDisposition(filename, contentType),
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "Content-Security-Policy": FILE_CSP,
     "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": NO_INDEX,
+    Vary: VARY_ON_REQUEST_TYPE,
     "Accept-Ranges": "bytes",
     "Cache-Control": cacheControl(key),
     "Last-Modified": object.uploaded.toUTCString(),
@@ -139,8 +168,23 @@ function resolveRange(range: R2Range | undefined, size: number): { offset: numbe
   return { offset, length }
 }
 
-async function rangeNotSatisfiable(key: string, config: Config): Promise<Response> {
+/** A single `bytes=` range as R2 takes it, or null for anything else. */
+function parseRange(header: string | null): R2Range | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "")
+  if (!match) return null
+  const [, first, last] = match
+  if (first === "") return last === "" ? null : { suffix: Number(last) }
+  const offset = Number(first)
+  if (last === "") return { offset }
+  const end = Number(last)
+  return end < offset ? null : { offset, length: end - offset + 1 }
+}
+
+/** A 416 if `range` lies outside the object, a 404 if there is no object, else null. */
+async function rangeNotSatisfiable(key: string, range: R2Range, config: Config): Promise<Response | null> {
   const object = await config.bucket.head(key)
   if (!object) return notFound()
+  const outside = "suffix" in range ? range.suffix === 0 : (range.offset ?? 0) >= object.size
+  if (!outside) return null
   return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
 }

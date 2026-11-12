@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { escapeHtml, jsonForScript } from "../src/escape"
+import { escapeHtml, jsonForScript, shellQuote, stringLiteral } from "../src/escape"
 import { formatBytes, formatDuration, formatRelativeTo } from "../src/format"
 import { createObjectKey, decodeFilename, filenameFromKey, isExpired, parseExpiry } from "../src/keys"
 import { contentDisposition, isInlineSafe, sanitizeContentType } from "../src/mime"
@@ -62,6 +62,31 @@ describe("escape", () => {
     expect(json).not.toContain("<")
     expect(json).not.toContain(">")
     expect(JSON.parse(json).name).toBe("</script><script>alert(1)</script>")
+  })
+})
+
+describe("shell and code quoting", () => {
+  it("leaves plain values bare", () => {
+    expect(shellQuote("notes.txt")).toBe("notes.txt")
+    expect(shellQuote("https://transfr.one/3f1c9b27d4e0-68d0f3a2/my%20file.txt")).toBe(
+      "https://transfr.one/3f1c9b27d4e0-68d0f3a2/my%20file.txt",
+    )
+  })
+
+  it("single quotes anything the shell would interpret", () => {
+    for (const value of ["a b", "a;id", "$(whoami)", "`id`", "a&b", "a|b", "a>b", "~root", "*", "a\\b", "", "-rf", 'a"b']) {
+      expect(shellQuote(value), value).toBe(`'${value}'`)
+    }
+  })
+
+  it("escapes single quotes by closing and reopening the quoted string", () => {
+    expect(shellQuote("it's")).toBe(`'it'\\''s'`)
+    expect(shellQuote("';id;'")).toBe("''\\'';id;'\\''" + "'")
+  })
+
+  it("produces a string literal that cannot be broken out of", () => {
+    expect(stringLiteral("https://x/a'b")).toBe(`"https://x/a'b"`)
+    expect(stringLiteral('a"b\\c\n')).toBe('"a\\"b\\\\c\\n"')
   })
 })
 

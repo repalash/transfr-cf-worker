@@ -30,3 +30,22 @@ export function jsonForScript(value: unknown): string {
     .replace(/&/g, "\\u0026")
     .replace(LINE_SEPARATORS, (char) => (char.charCodeAt(0) === 0x2028 ? "\\u2028" : "\\u2029"))
 }
+
+/**
+ * Quotes a value for a POSIX shell command line. The pages show commands to
+ * copy and paste that contain file names and links chosen by the uploader, so
+ * anything but plain characters is wrapped in single quotes, where the shell
+ * interprets nothing.
+ */
+export function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_/:=@%+,.-]+$/.test(value) && !value.startsWith("-")) return value
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * A double quoted string literal that is valid in both JavaScript and Python,
+ * for the code snippets on the pages.
+ */
+export function stringLiteral(value: string): string {
+  return JSON.stringify(value)
+}

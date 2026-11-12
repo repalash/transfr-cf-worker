@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>transfr.one</title>
-  <link rel="stylesheet" href="https://stackedit.io/style.css"/>
+  <link rel="stylesheet" href="/assets/style.css"/>
   <style>
       #dropzone {
           border: 1px solid hsla(0, 0%, 50%, .33);
@@ -72,219 +72,9 @@
       }
   </style>
   <script id="transfr-config" type="application/json">{{CONFIG_JSON}}</script>
-  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.10.2/dist/openpgp.min.js"
-          integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"
-          crossorigin="anonymous"></script>
-  <script type="module">
-    import {SimpleDropzone} from "https://cdn.jsdelivr.net/npm/simple-dropzone@0.8.3/+esm";
-
-    const config = JSON.parse(document.getElementById("transfr-config").textContent);
-
-    function promptPassphrase() {
-      for (let trial = 0; trial < 3; trial++) {
-        const passphrase = prompt("Enter passphrase to encrypt file with");
-        if (passphrase === null) return null;
-        if (passphrase.length >= 4) return passphrase;
-        alert("Passphrase must be at least 4 characters long.");
-      }
-      alert("You can turn off encryption by clicking the 🔐 button.");
-      return null;
-    }
-
-    /** Strips directories and anything that would need escaping in a URL. */
-    function safeFilename(name) {
-      const base = name.split("/").pop().split("\\").pop();
-      const dot = base.lastIndexOf(".");
-      const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/\W+/g, "-").replace(/^-+|-+$/g, "") || "file";
-      const ext = (dot > 0 ? base.slice(dot + 1) : "").replace(/\W+/g, "-");
-      return ext ? stem + "." + ext : stem;
-    }
-
-    function formatBytes(bytes) {
-      if (bytes < 1024) return bytes + " bytes";
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      const dropzoneEl = document.getElementById("dropzone");
-      const dropzoneText = document.getElementById("dropzone-text");
-      const dropzoneResult = document.getElementById("dropzone-result");
-      const inputEl = document.getElementById("file-input");
-      const encryptBtn = document.getElementById("encrypt-btn");
-      const finalDropzoneText = "Drop or paste another file to transfr.";
-
-      if (!SimpleDropzone) {
-        dropzoneEl.style.display = "none";
-        return;
-      }
-
-      // Encryption is on by default; the choice is remembered per browser.
-      if (localStorage.getItem("doEncrypt") === null) {
-        localStorage.setItem("doEncrypt", encryptBtn.classList.contains("active") ? "1" : "0");
-      }
-      encryptBtn.classList.toggle("active", localStorage.getItem("doEncrypt") === "1");
-      const shouldEncrypt = () => localStorage.getItem("doEncrypt") === "1";
-
-      encryptBtn.addEventListener("click", () => {
-        localStorage.setItem("doEncrypt", encryptBtn.classList.toggle("active") ? "1" : "0");
-      });
-      dropzoneEl.addEventListener("click", (e) => {
-        if (e.target && e.target.id !== "encrypt-btn") inputEl.click();
-      });
-
-      // Everything below the dropzone fades out while a file is being dragged
-      // over the page, so the drop target is unmistakable.
-      const siblings = Array.from(document.querySelectorAll("#dropzone ~ *"));
-      let siblingsHidden = false;
-
-      function setSiblingsVisible(visible) {
-        if (siblingsHidden === !visible) return;
-        siblingsHidden = !visible;
-        for (const el of siblings) {
-          el.style.transition = "opacity 0.1s ease-out";
-          el.style.opacity = visible ? "" : "0";
-        }
-      }
-
-      document.body.addEventListener("dragover", () => {
-        document.body.classList.add("drop-hover");
-        setSiblingsVisible(false);
-      });
-      document.body.addEventListener("dragleave", (e) => {
-        if (e.target !== document.body) return;
-        document.body.classList.remove("drop-hover");
-        setSiblingsVisible(true);
-      });
-      dropzoneEl.addEventListener("dragover", () => dropzoneEl.classList.add("drop-hover"));
-      dropzoneEl.addEventListener("dragleave", (e) => {
-        if (e.target !== dropzoneEl) return;
-        dropzoneEl.classList.remove("drop-hover");
-      });
-
-      function showResult(link, encrypted, decryptedName) {
-        dropzoneResult.textContent = "";
-        const anchor = document.createElement("a");
-        anchor.href = link;
-        anchor.target = "_blank";
-        anchor.rel = "noopener noreferrer";
-        anchor.textContent = link;
-        dropzoneResult.append("Upload finished", document.createElement("br"), anchor,
-          " (deletes in " + config.ttlLabel + ")");
-        if (encrypted) {
-          dropzoneResult.append(document.createElement("br"),
-            "It can be decrypted with the passphrase you used to encrypt it:");
-          const pre = document.createElement("pre");
-          const code = document.createElement("code");
-          code.textContent = "curl -L " + link + " | gpg --pinentry-mode loopback -d -o " + decryptedName;
-          pre.append(code);
-          dropzoneResult.append(pre);
-        }
-        dropzoneResult.style.display = "unset";
-      }
-
-      async function upload(file) {
-        const filename = safeFilename(file.name);
-        const label = filename + " (" + formatBytes(file.size) + ")";
-        dropzoneText.innerText = label + ": Loading...";
-
-        const bytes = await file.arrayBuffer();
-        let encrypted = false;
-        let upFile = new File([bytes], filename, {type: file.type || "application/octet-stream"});
-
-        if (shouldEncrypt()) {
-          const passphrase = promptPassphrase();
-          if (!passphrase) return;
-          dropzoneText.innerText = label + ": Encrypting...";
-          const message = await openpgp.createMessage({
-            binary: new Uint8Array(bytes),
-            filename: filename,
-            date: new Date(file.lastModified || Date.now()),
-            format: "binary",
-          });
-          const ciphertext = await openpgp.encrypt({
-            message,
-            passwords: [passphrase], // multiple passwords possible later
-            format: "binary", // don't ASCII armor (for Uint8Array output)
-          });
-          encrypted = true;
-          upFile = new File([ciphertext], filename + ".pgp", {type: "application/pgp-encrypted"});
-        }
-
-        dropzoneText.innerText = label + ": Uploading...";
-        const res = await fetch("/" + encodeURIComponent(upFile.name), {
-          method: "PUT",
-          body: upFile,
-          headers: {"Content-Type": upFile.type},
-        });
-        const text = (await res.text()).trim();
-        if (!res.ok) throw new Error("Upload failed (" + res.status + "): " + text);
-
-        // Only ever link to a URL this origin produced.
-        const link = new URL(text, location.origin);
-        if (link.origin !== location.origin) throw new Error("Unexpected upload response: " + text);
-        showResult(link.href, encrypted, filename);
-      }
-
-      const dropzone = new SimpleDropzone(document.body, inputEl);
-      // Treat zips like any other file instead of unpacking them client side.
-      dropzone._loadZip = (file) => {
-        dropzone._emit("drop", {files: new Map([[file.webkitRelativePath || file.name, file]])});
-      };
-
-      dropzone.on("drop", ({files}) => {
-        document.body.classList.remove("drop-hover");
-        dropzoneEl.classList.remove("drop-hover");
-        setSiblingsVisible(true);
-
-        if (!files || !files.size) return;
-        if (files.size > 1) {
-          alert("Only one file can be uploaded at a time.");
-          return;
-        }
-        const file = files.values().next().value;
-        if (!file) return;
-        if (file.size > config.maxFileSizeBytes) {
-          alert("File size limit exceeded. Max file size is " + config.maxFileSizeLabel + ".");
-          return;
-        }
-        upload(file).catch((e) => {
-          console.error(e);
-          dropzoneResult.textContent = "";
-          const span = document.createElement("span");
-          span.style.color = "red";
-          span.textContent = "Error uploading file. Please try again later.";
-          dropzoneResult.append(span);
-          dropzoneResult.style.display = "unset";
-        }).finally(() => {
-          dropzoneText.innerText = finalDropzoneText;
-        });
-      });
-
-      document.body.addEventListener("paste", async (e) => {
-        let file = null;
-        try {
-          const items = await navigator.clipboard.read();
-          if (!items || !items.length || !items[0].types.length) return;
-          const type = items[0].types[0];
-          const data = await items[0].getType(type);
-          file = new File([data], "pasted" + (type.startsWith("text/") ? ".txt" : ""), {type});
-        } catch (err) {
-          // Clipboard permission denied or unsupported: fall back to the event.
-          const item = e.clipboardData && e.clipboardData.files && e.clipboardData.files[0];
-          if (item) file = item;
-          else {
-            const text = e.clipboardData && e.clipboardData.getData("text/plain");
-            if (text) file = new File([text], "pasted.txt", {type: "text/plain"});
-          }
-        }
-        if (!file) return;
-        if (!shouldEncrypt() &&
-          !confirm("Are you sure you want to upload the file or text from the clipboard WITHOUT encryption?")) return;
-        dropzone._emit("drop", {files: new Map([[file.name, file]])});
-      }, false);
-    });
-  </script>
+  <!-- OpenPGP.js 5.10.2, served from this origin; the hash pins the exact file. -->
+  <script src="/assets/openpgp.min.js" integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"></script>
+  <script type="module" src="/assets/index.js"></script>
 </head>
 
 <body class="stackedit">
@@ -374,7 +164,7 @@ response <span class="token operator">=</span> requests<span class="token punctu
     <li>Files are automatically deleted after <code>{{TTL_LABEL}}</code>.</li>
     <li>Max file upload size is <code>{{MAX_FILE_SIZE_LABEL}}</code>
       (<code>{{MAX_BUFFERED_FILE_SIZE_LABEL}}</code> for a streamed upload without a <code>Content-Length</code>,
-      like <code>curl -T -</code>).</li>
+      like <code>curl -T -</code>, and for form uploads, like <code>curl -F</code>).</li>
     <li>This is a free service, please try not to abuse.</li>
     <li>Powered by Cloudflare Workers. Check out the source code to host your own: <a
       href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>

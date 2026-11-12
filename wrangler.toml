@@ -9,6 +9,11 @@ type = "Text"
 globs = ["**/*.html"]
 fallthrough = false
 
+# Scripts, stylesheet and fonts for the pages. Cloudflare serves a request
+# that matches a file in here directly; everything else goes to the worker.
+[assets]
+directory = "./public"
+
 # Set bucket_name to the R2 bucket created with
 # `wrangler r2 bucket create <name>`; the binding name has to match
 # R2_DEFAULT_NAMESPACE below.

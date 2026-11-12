@@ -1,7 +1,7 @@
 import accessTemplate from "../html/access.html"
 import indexTemplate from "../html/index.html"
 import type { Config } from "./config"
-import { escapeHtml, jsonForScript } from "./escape"
+import { escapeHtml, jsonForScript, shellQuote, stringLiteral } from "./escape"
 import { formatBytes, formatDuration, formatRelativeTo } from "./format"
 import { render } from "./templates"
 
@@ -36,6 +36,8 @@ export interface AccessPageData {
 
 export function renderAccessPage(data: AccessPageData): string {
   const decryptedName = data.encrypted ? data.filename.replace(/\.(pgp|gpg|asc)$/i, "") : data.filename
+  // What the commands save the file as: never a path, only the last segment.
+  const outputName = (name: string) => name.split("/").pop() || "download"
   return render(accessTemplate, {
     // Values used from JavaScript go through a JSON block: string
     // interpolation into a script body is not safely escapable.
@@ -48,9 +50,13 @@ export function renderAccessPage(data: AccessPageData): string {
       expiresAt: data.expiresAt,
     }),
     FILE_NAME: escapeHtml(data.filename),
-    FILE_NAME_RAW: escapeHtml(decryptedName),
     FILE_SIZE_LABEL: escapeHtml(`${formatBytes(data.size)} (${data.size} bytes)`),
-    FILE_LINK: escapeHtml(data.fileUrl),
+    // The file name and link are the uploader's, and these end up in commands
+    // and code a visitor copies and runs: quote them for where they are used.
+    FILE_LINK_SH: escapeHtml(shellQuote(data.fileUrl)),
+    FILE_OUT_SH: escapeHtml(shellQuote(outputName(data.filename))),
+    FILE_OUT_RAW_SH: escapeHtml(shellQuote(outputName(decryptedName))),
+    FILE_LINK_STR: escapeHtml(stringLiteral(data.fileUrl)),
     FILE_LINK_RAW: escapeHtml(data.rawUrl),
     HOME_LINK: escapeHtml(data.homeUrl),
     TTL_LABEL: escapeHtml(formatDuration(data.ttlSeconds)),
