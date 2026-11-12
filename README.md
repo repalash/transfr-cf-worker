@@ -121,8 +121,9 @@ and log in with `wrangler login`.
 CI (`.github/workflows/ci.yml`) installs the dependencies pinned in
 `package-lock.json`, runs the type check and tests on every pull request and
 push, and deploys `main` with `wrangler deploy` once they pass. It
-can also be run by hand from the Actions tab (`workflow_dispatch`). It needs two
-repository secrets:
+can also be run by hand from the Actions tab (`workflow_dispatch`). The deploy
+job runs in the `production` environment (Settings > Environments) and needs two
+secrets there:
 
 - `CLOUDFLARE_API_TOKEN`: an account-owned API token (Manage Account > Account
   API Tokens) scoped to Specified Workers > `transfr-cf` with the Editor role.

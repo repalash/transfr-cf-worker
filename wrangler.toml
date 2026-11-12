@@ -19,7 +19,7 @@ directory = "./public"
 # R2_DEFAULT_NAMESPACE below.
 [[r2_buckets]]
 binding = "TEMP_STORE_R2_1"
-bucket_name = "transfr-temp-store"
+bucket_name = "transfr-temp-bucket-2"
 
 [vars]
 R2_DEFAULT_NAMESPACE = "TEMP_STORE_R2_1"
