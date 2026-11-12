@@ -16,6 +16,7 @@ export function renderIndexPage(origin: string, config: Config): string {
     }),
     ORIGIN: escapeHtml(origin),
     MAX_FILE_SIZE_LABEL: escapeHtml(maxFileSizeLabel),
+    MAX_BUFFERED_FILE_SIZE_LABEL: escapeHtml(formatBytes(config.maxBufferedFileSizeBytes)),
     TTL_LABEL: escapeHtml(ttlLabel),
   })
 }

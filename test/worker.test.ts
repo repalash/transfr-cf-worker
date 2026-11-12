@@ -27,6 +27,17 @@ async function upload(
   return { response, url, key: url.startsWith("http") ? new URL(url).pathname.slice(1) : "" }
 }
 
+/** A body with no known length, as a chunked upload arrives. */
+function chunked(...parts: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      for (const part of parts) controller.enqueue(encoder.encode(part))
+      controller.close()
+    },
+  })
+}
+
 beforeEach(async () => {
   for (const object of (await bucket().list()).objects) await bucket().delete(object.key)
 })
@@ -43,8 +54,9 @@ describe("landing page", () => {
     // Every template token is filled in.
     expect(html).not.toContain("{{")
     // The page is told the real limits by the worker.
-    expect(html).toContain('"maxFileSizeBytes":21000000')
-    expect(html).toContain("<code>20 MB</code>")
+    expect(html).toContain('"maxFileSizeBytes":100000000')
+    expect(html).toContain("<code>95 MB</code>")
+    expect(html).toContain("<code>20 MB</code> for a streamed upload without a")
     expect(html).toContain("<code>24 hours</code>")
     // Docs point at the host being served, not a hard coded one.
     expect(html).toContain("curl --upload-file ./file.txt https://transfr.test")
@@ -111,8 +123,10 @@ describe("upload", () => {
   })
 
   it("rejects a file larger than the limit", async () => {
-    const tooBig = "x".repeat(Number(env.R2_MAX_FILE_SIZE_BYTES) + 1)
-    const response = await call(new Request("https://transfr.test/big.txt", { method: "PUT", body: tooBig }))
+    const response = await call(
+      new Request("https://transfr.test/big.txt", { method: "PUT", body: "x".repeat(11) }),
+      { R2_MAX_FILE_SIZE_BYTES: "10" },
+    )
     expect(response.status).toBe(413)
     expect(await response.text()).toMatch(/^Invalid file size/)
   })
@@ -122,8 +136,78 @@ describe("upload", () => {
       new Request("https://transfr.test/big.txt", {
         method: "PUT",
         body: "small",
-        headers: { "content-length": "99999999" },
+        headers: { "content-length": "11" },
       }),
+      { R2_MAX_FILE_SIZE_BYTES: "10" },
+    )
+    expect(response.status).toBe(413)
+    expect(await response.text()).toBe("Invalid file size: 11, max size = 10\n")
+  })
+
+  it("streams an upload with a Content-Length past the buffered limit", async () => {
+    const data = "0123456789".repeat(5)
+    const response = await call(
+      new Request("https://transfr.test/streamed.txt", {
+        method: "PUT",
+        body: data,
+        headers: { "content-length": String(data.length) },
+      }),
+      { R2_MAX_FILE_SIZE_BYTES: "100", R2_MAX_BUFFERED_FILE_SIZE_BYTES: "10" },
+    )
+    expect(response.status).toBe(200)
+    const key = new URL((await response.text()).trim()).pathname.slice(1)
+    expect(await (await bucket().get(key))?.text()).toBe(data)
+  })
+
+  it("rejects a body that does not match its Content-Length, storing nothing", async () => {
+    for (const length of ["10", "3"]) {
+      const response = await call(
+        new Request("https://transfr.test/short.txt", {
+          method: "PUT",
+          body: "small",
+          headers: { "content-length": length },
+        }),
+      )
+      expect(response.status, length).toBe(400)
+      expect(await response.text()).toMatch(/^Upload incomplete/)
+    }
+    expect((await bucket().list()).objects).toHaveLength(0)
+  })
+
+  it("rejects an empty body declared with a Content-Length of 0", async () => {
+    const response = await call(
+      new Request("https://transfr.test/empty.txt", { method: "PUT", body: "", headers: { "content-length": "0" } }),
+    )
+    expect(response.status).toBe(400)
+  })
+
+  it("buffers an upload without a Content-Length under the lower limit", async () => {
+    const response = await call(
+      new Request("https://transfr.test/chunked.txt", { method: "PUT", body: chunked("abc", "def") }),
+      { R2_MAX_BUFFERED_FILE_SIZE_BYTES: "10" },
+    )
+    expect(response.status).toBe(200)
+    const key = new URL((await response.text()).trim()).pathname.slice(1)
+    expect(await (await bucket().get(key))?.text()).toBe("abcdef")
+  })
+
+  it("rejects an upload without a Content-Length past the buffered limit", async () => {
+    const response = await call(
+      new Request("https://transfr.test/chunked.txt", { method: "PUT", body: chunked("012345", "6789ab") }),
+      { R2_MAX_FILE_SIZE_BYTES: "100", R2_MAX_BUFFERED_FILE_SIZE_BYTES: "10" },
+    )
+    expect(response.status).toBe(413)
+    const text = await response.text()
+    expect(text).toMatch(/^Invalid file size: more than 10/)
+    expect(text).toContain("Content-Length header")
+    expect(text).toContain("up to 100")
+    expect((await bucket().list()).objects).toHaveLength(0)
+  })
+
+  it("never buffers more than the overall limit", async () => {
+    const response = await call(
+      new Request("https://transfr.test/chunked.txt", { method: "PUT", body: chunked("012345", "6789ab") }),
+      { R2_MAX_FILE_SIZE_BYTES: "10", R2_MAX_BUFFERED_FILE_SIZE_BYTES: "1000" },
     )
     expect(response.status).toBe(413)
   })
@@ -316,6 +400,13 @@ describe("configuration", () => {
     })
     expect(response.status).toBe(500)
     expect(await response.text()).toBe("Server misconfigured\n")
+  })
+
+  it("fails loudly on an invalid buffered size limit too", async () => {
+    const response = await call(new Request("https://transfr.test/file.txt", { method: "PUT", body: "data" }), {
+      R2_MAX_BUFFERED_FILE_SIZE_BYTES: "-1",
+    })
+    expect(response.status).toBe(500)
   })
 
   it("fails when no bucket is bound", async () => {

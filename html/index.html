@@ -372,7 +372,9 @@ response <span class="token operator">=</span> requests<span class="token punctu
   <h2 id="notes">Notes</h2>
   <ul>
     <li>Files are automatically deleted after <code>{{TTL_LABEL}}</code>.</li>
-    <li>Max file upload size is <code>{{MAX_FILE_SIZE_LABEL}}</code>.</li>
+    <li>Max file upload size is <code>{{MAX_FILE_SIZE_LABEL}}</code>
+      (<code>{{MAX_BUFFERED_FILE_SIZE_LABEL}}</code> for a streamed upload without a <code>Content-Length</code>,
+      like <code>curl -T -</code>).</li>
     <li>This is a free service, please try not to abuse.</li>
     <li>Powered by Cloudflare Workers. Check out the source code to host your own: <a
       href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>

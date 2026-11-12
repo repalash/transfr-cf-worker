@@ -101,8 +101,18 @@ Variables in `wrangler.toml` under `[vars]`:
 | Variable                 | Default    | Description                                                     |
 | ------------------------ | ---------- | --------------------------------------------------------------- |
 | `R2_DEFAULT_NAMESPACE`   | –          | Name of the R2 binding to store files in (required).            |
-| `R2_MAX_FILE_SIZE_BYTES` | `21000000` | Largest accepted upload.                                        |
+| `R2_MAX_FILE_SIZE_BYTES` | `21000000` | Largest accepted upload with a `Content-Length`; streamed straight to R2. |
+| `R2_MAX_BUFFERED_FILE_SIZE_BYTES` | `21000000` | Largest upload without a `Content-Length` (chunked), which is buffered in memory. Capped at `R2_MAX_FILE_SIZE_BYTES`. |
 | `R2_DEFAULT_FILE_TTL`    | `86400`    | File lifetime in seconds.                                       |
 | `RAW_ONLY_HOSTS`         | –          | Hosts that always serve bytes, never the HTML page, e.g. for embedding. |
 
 An invalid value is a startup error rather than a silently ignored limit.
+
+R2 has to know an object's size before it stores it. An upload with a
+`Content-Length` (browsers, `curl --upload-file`, `curl --data-binary @file`)
+streams through the worker into R2, so its limit is not bounded by the Worker's
+128 MB of memory. Cloudflare itself rejects request bodies over 100 MB on the
+Free plan (200 MB Business, 500 MB Enterprise), so that is the practical
+ceiling for `R2_MAX_FILE_SIZE_BYTES`; `wrangler.toml` sets it to 100 MB. A
+chunked upload (`curl -T -`) has no length, so it is read into memory first and
+gets the lower `R2_MAX_BUFFERED_FILE_SIZE_BYTES`.
