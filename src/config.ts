@@ -15,7 +15,7 @@ const DEFAULT_MAX_FILE_SIZE_BYTES = 21_000_000 // 20 MB
  * size before R2 will take it, so it gets a lower limit: a Worker has 128 MB.
  */
 const DEFAULT_MAX_BUFFERED_FILE_SIZE_BYTES = 21_000_000 // 20 MB
-const DEFAULT_FILE_TTL_SECONDS = 86_400 // 24 hours
+const DEFAULT_FILE_TTL_SECONDS = 604_800 // 7 days
 const DEFAULT_PIPE_WAIT_SECONDS = 300 // 5 minutes
 const DEFAULT_STREAM_MAX_BYTES = 1024 * 1024 * 1024 // 1 GB
 const DEFAULT_STREAM_IDLE_TTL_SECONDS = 86_400 // 24 hours after the last write

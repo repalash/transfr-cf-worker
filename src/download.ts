@@ -24,7 +24,7 @@ export async function handleDownload(
   request: Request,
   url: URL,
   config: Config,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
 ): Promise<Response> {
   const key = url.pathname.replace(/^\/+/, "")
   const isHead = request.method === "HEAD"
@@ -34,11 +34,9 @@ export async function handleDownload(
   if (site) return site
 
   // The expiry is part of the key, so the file stops being served on time even
-  // if the R2 lifecycle rule (day granularity) has not removed it yet.
-  if (isExpired(key)) {
-    ctx.waitUntil(config.bucket.delete(key).catch((error) => console.error("expired object delete failed", error)))
-    return missing(config, url)
-  }
+  // if the R2 lifecycle rule (day granularity) has not removed it yet. The
+  // worker never deletes anything itself: removing files is left to that rule.
+  if (isExpired(key)) return missing(config, url)
 
   if (!isHead && !url.searchParams.has("raw") && prefersAccessPage(request, url, config)) {
     return await accessPageResponse(key, url, config)

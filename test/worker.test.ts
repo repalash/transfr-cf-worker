@@ -81,7 +81,7 @@ describe("landing page", () => {
     expect(html).toContain('"maxFileSizeBytes":100000000')
     expect(html).toContain("<code>95 MB</code>")
     expect(html).toContain("<code>20 MB</code> for a streamed upload without a")
-    expect(html).toContain("<code>24 hours</code>")
+    expect(html).toContain("<code>7 days</code>")
     // Docs point at the host being served, not a hard coded one.
     expect(html).toContain("curl --upload-file ./file.txt https://transfr.test")
   })
@@ -99,7 +99,7 @@ describe("search engines and share previews", () => {
   it("describes the page and points at the canonical address", async () => {
     const response = await call(new Request("https://transfr.test/", { headers: NAVIGATION }), canonical)
     const html = await response.text()
-    expect(html).toMatch(/<meta name="description" content="Send a file with one curl command[^"]*24 hours[^"]*">/)
+    expect(html).toMatch(/<meta name="description" content="Send a file with one curl command[^"]*7 days[^"]*">/)
     expect(html).toContain('<link rel="canonical" href="https://transfr.test/">')
     expect(html).toContain('<meta property="og:url" content="https://transfr.test/">')
     expect(html).toContain('<meta property="og:image" content="https://transfr.test/assets/og.png">')
@@ -139,7 +139,7 @@ describe("search engines and share previews", () => {
     const { url } = await upload("/notes.txt", "Hello, world!")
     const html = await call(new Request(url, { headers: NAVIGATION }), canonical).then((r) => r.text())
     expect(html).toContain('<meta property="og:title" content="notes.txt">')
-    expect(html).toMatch(/<meta property="og:description" content="13 bytes\. Shared with transfr\.one, expires in 24 hours\.">/)
+    expect(html).toMatch(/<meta property="og:description" content="13 bytes\. Shared with transfr\.one, expires in 7 days\.">/)
     expect(html).toContain('<meta property="og:image" content="https://transfr.test/assets/apple-touch-icon.png">')
     // Still not for search engines.
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">')
@@ -165,7 +165,7 @@ describe("scripts and agents", () => {
       expect(guide).not.toContain("{{")
       expect(guide).toContain("curl --upload-file ./report.pdf https://transfr.test/report.pdf")
       expect(guide).toContain("up to 95 MB (100000000 bytes)")
-      expect(guide).toContain("Files are deleted after 24 hours")
+      expect(guide).toContain("Files are deleted after 7 days")
     }
   })
 
@@ -218,9 +218,9 @@ describe("scripts and agents", () => {
       name: "report v2.json",
       size: 7,
       content_type: "application/json",
-      expires_in_seconds: 86400,
+      expires_in_seconds: 604800,
     })
-    expect(Date.parse(body.expires_at as string)).toBeGreaterThan(Date.now() + 86_000_000)
+    expect(Date.parse(body.expires_at as string)).toBeGreaterThan(Date.now() + 604_000_000)
   })
 
   it("keeps the plain replies for libraries that list JSON among other types", async () => {
@@ -263,7 +263,7 @@ describe("scripts and agents", () => {
     expect(missing.status).toBe(404)
     expect(missing.headers.get("x-error-code")).toBe("not_found")
     expect(await missing.json()).toEqual({
-      error: "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload. Usage: https://transfr.test/llms.txt",
+      error: "Not found: the link is wrong, or the file has expired. Files are deleted 7 days after upload. Usage: https://transfr.test/llms.txt",
       code: "not_found",
       status: 404,
     })
@@ -318,7 +318,7 @@ describe("scripts and agents", () => {
     const { response, url } = await upload("/file.txt", "Hello, world!")
     const expires = response.headers.get("x-expires-at") ?? ""
     expect(Date.parse(expires)).toBeGreaterThan(before + 86_000_000)
-    expect(Date.parse(expires)).toBeLessThanOrEqual(Date.now() + 86_400_000)
+    expect(Date.parse(expires)).toBeLessThanOrEqual(Date.now() + 604_800_000)
 
     for (const method of ["GET", "HEAD"]) {
       const download = await call(new Request(url, { method, headers: { "user-agent": CURL_UA } }))
@@ -712,11 +712,11 @@ describe("download", () => {
     )
     expect(response.status).toBe(404)
     expect(await response.text()).toBe(
-      "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload. Usage: https://transfr.test/llms.txt\n",
+      "Not found: the link is wrong, or the file has expired. Files are deleted 7 days after upload. Usage: https://transfr.test/llms.txt\n",
     )
   })
 
-  it("refuses to serve an expired key and deletes the object", async () => {
+  it("refuses to serve an expired key, and leaves deleting it to the bucket rule", async () => {
     const expired = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
     await bucket().put(expired, "stale")
 
@@ -724,7 +724,8 @@ describe("download", () => {
       new Request(`https://transfr.test/${expired}`, { headers: { "user-agent": CURL_UA } }),
     )
     expect(response.status).toBe(404)
-    expect(await bucket().head(expired)).toBeNull()
+    // The worker never deletes anything.
+    expect(await bucket().head(expired)).not.toBeNull()
   })
 
   it("still serves a link made by an earlier version until it expires", async () => {
