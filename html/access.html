@@ -47,9 +47,9 @@
 
   <p>The file can simply be downloaded with the link above or in terminal/code.</p>
   <h3 id="with-curl-1">With <code>curl</code></h3>
-  <pre class="if_encrypted"><code>curl -L {{FILE_LINK_SH}} | gpg --pinentry-mode loopback -d -o {{FILE_OUT_RAW_SH}}
+  <pre class="if_encrypted"><code>{{CURL_COMMAND_ENC}}
 </code></pre>
-  <pre class="if_not_encrypted"><code>curl -L {{FILE_LINK_SH}} -o {{FILE_OUT_SH}}
+  <pre class="if_not_encrypted"><code>{{CURL_COMMAND}}
 </code></pre>
   <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
   <pre class=" language-javascript"><code class="prism  language-javascript"><span

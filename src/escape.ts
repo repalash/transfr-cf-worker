@@ -32,14 +32,21 @@ export function jsonForScript(value: unknown): string {
 }
 
 /**
- * Quotes a value for a POSIX shell command line. The pages show commands to
- * copy and paste that contain file names and links chosen by the uploader, so
- * anything but plain characters is wrapped in single quotes, where the shell
- * interprets nothing.
+ * True if a value can sit on a command line as it is, in any common shell: sh
+ * and friends, PowerShell and Windows cmd.exe. Quoting is not an answer here,
+ * because the shells do not agree on it (cmd.exe ignores single quotes), so
+ * the pages only ever put values that pass this into a command.
  */
-export function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_/:=@%+,.-]+$/.test(value) && !value.startsWith("-")) return value
-  return `'${value.replace(/'/g, `'\\''`)}'`
+export function isShellPlain(value: string): boolean {
+  return /^(?:[A-Za-z0-9_/:.-]|%[0-9A-Fa-f]{2})+$/.test(value) && !value.startsWith("-")
+}
+
+/**
+ * A file name reduced to characters no shell interprets: letters and digits of
+ * any script, `_`, `.` and `-`. Used as the name a command saves a file under.
+ */
+export function shellSafeName(name: string): string {
+  return name.replace(/[^\p{L}\p{N}_.-]+/gu, "_").replace(/^[-.]+/, "") || "download"
 }
 
 /**

@@ -2,6 +2,8 @@ name = "transfr-cf"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
 workers_dev = true
+# The live worker has Logpush on; a deploy without this would turn it off.
+logpush = true
 
 # The HTML pages live in html/ and are bundled as text modules.
 [[rules]]

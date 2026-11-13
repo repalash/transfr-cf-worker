@@ -43,8 +43,10 @@ Only a browser *navigating* to a link gets the HTML file page (decided by
 it). `fetch()`, `<img>` and `<video>` in a browser get the bytes, like curl.
 
 The file page shows commands to copy. The file name and link in them come from
-the uploader, so they are shell quoted there, and the name alone is used as the
-output file.
+the uploader, and shells do not agree on quoting (Windows `cmd.exe` ignores
+single quotes), so nothing unsafe is ever put into a command: the output name
+is reduced to letters, digits, `_`, `.` and `-`, and a link with any other
+character is left out of the commands altogether.
 
 Uploads are served back with `Content-Disposition: attachment` and
 `X-Content-Type-Options: nosniff` unless they are a type the browser can safely

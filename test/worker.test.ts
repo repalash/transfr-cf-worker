@@ -367,6 +367,13 @@ describe("download", () => {
     }
   })
 
+  it("answers a range of no bytes with 416", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    const response = await call(new Request(url, { headers: { range: "bytes=-0", "user-agent": CURL_UA } }))
+    expect(response.status).toBe(416)
+    expect(response.headers.get("content-range")).toBe("bytes */10")
+  })
+
   it("ignores a Range header it does not understand and sends the whole file", async () => {
     const { url } = await upload("/file.txt", "0123456789")
     for (const range of ["bytes=abc", "bytes=0-1,4-5", "bytes=5-2", "lines=1-2", "bytes=-"]) {
@@ -502,27 +509,29 @@ describe("access page", () => {
     expect(await bytes.text()).toBe("Hello, world!")
   })
 
-  it("quotes the uploader's file name and link in the commands it shows", async () => {
-    const { url } = await upload("/a;id;$(whoami)'x.txt", "data")
-    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
+  it("never puts an unsafe link or file name into the commands it shows", async () => {
+    // Unsafe in sh ("$(", ";", "'") and in cmd.exe ("&"), where quoting would not help.
+    for (const name of ["a;id;$(whoami)'x.txt", "x&calc.txt"]) {
+      const { url } = await upload(`/${name}`, "data")
+      const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
 
-    // In single quotes the shell interprets nothing; a quote in the value is
-    // closed, escaped and reopened. All of it is HTML escaped on the page.
-    const Q = "&#39;"
-    const quotedName = `${Q}a;id;$(whoami)${Q}\\${Q}${Q}x.txt${Q}`
-    const quotedUrl = `${Q}${url.replace("'", `${Q}\\${Q}${Q}`)}${Q}`
-    expect(html).toContain(`curl -L ${quotedUrl} -o ${quotedName}`)
-    // The code snippets get a double quoted string literal.
-    expect(html).toContain(`&quot;${url.replace("'", Q)}&quot;`)
-    // Nowhere does the raw name follow a command unquoted.
-    expect(html).not.toContain("-o a;id")
-    expect(html).not.toContain(`curl -L ${url.split("'")[0]}`)
+      expect(html, name).not.toContain("curl -L")
+      expect(html, name).toContain("not safe to paste into a terminal")
+      // The code snippets get a double quoted string literal instead.
+      expect(html, name).toContain(`&quot;${url.replace(/&/g, "&amp;").replace(/'/g, "&#39;")}&quot;`)
+      expect(html, name).not.toContain(`'${url}'`)
+    }
   })
 
-  it("leaves an ordinary file name and link unquoted in the commands", async () => {
-    const { url } = await upload("/notes.txt", "data")
-    const html = await call(new Request(url, { headers: NAVIGATION })).then((r) => r.text())
-    expect(html).toContain(`curl -L ${url} -o notes.txt`)
+  it("shows the commands for an ordinary link, with a save name no shell interprets", async () => {
+    const plain = await upload("/notes.txt", "data")
+    const html = await call(new Request(plain.url, { headers: NAVIGATION })).then((r) => r.text())
+    expect(html).toContain(`curl -L ${plain.url} -o notes.txt`)
+
+    // The link is percent encoded, so it is plain; the decoded name is not.
+    const spaced = await upload(`/${encodeURIComponent("my file & notes.txt")}`, "data")
+    const spacedHtml = await call(new Request(spaced.url, { headers: NAVIGATION })).then((r) => r.text())
+    expect(spacedHtml).toContain(`curl -L ${spaced.url} -o my_file_notes.txt`)
   })
 
   it("saves to the file name only, never to a path from the link", async () => {

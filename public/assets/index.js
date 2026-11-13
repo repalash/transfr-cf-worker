@@ -30,7 +30,7 @@ function safeFilename(name) {
   const clean = (part) => part.replace(/[^\p{L}\p{N}_]+/gu, "-");
   // Arrays of whole characters, so shortening never splits one in half.
   const stem = Array.from(clean(dot > 0 ? base.slice(0, dot) : base).replace(/^-+|-+$/g, "") || "file");
-  const ext = Array.from(clean(dot > 0 ? base.slice(dot + 1) : "")).slice(0, 16).join("");
+  const ext = Array.from(clean(dot > 0 ? base.slice(dot + 1) : "")).slice(0, 32).join("");
   const build = () => stem.join("") + (ext ? "." + ext : "");
   while (stem.length > 1 &&
     (build().length > MAX_NAME_CHARS || encodeURIComponent(build()).length > MAX_ENCODED_NAME_CHARS)) {
@@ -223,13 +223,23 @@ document.addEventListener("DOMContentLoaded", () => {
     dropzoneEl.classList.toggle("drop-hover", dropzoneEl.contains(e.target));
     setSiblingsVisible(false);
     // dragover keeps firing while a file is held over the page, so the drag
-    // has ended (dropped, cancelled or left the window) once it stops.
+    // has ended (dropped, cancelled or left the window) once it stops. Browsers
+    // may leave up to about half a second between two of these events.
     clearTimeout(dragTimer);
-    dragTimer = setTimeout(endDrag, 200);
+    dragTimer = setTimeout(endDrag, 700);
   });
   document.body.addEventListener("drop", (e) => {
     e.preventDefault(); // otherwise the browser navigates to the file
     endDrag();
+    const items = Array.from((e.dataTransfer && e.dataTransfer.items) || []);
+    const isFolder = (item) => {
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      return !!entry && entry.isDirectory;
+    };
+    if (items.some(isFolder)) {
+      alert("Folders can't be uploaded. Zip the folder and upload the zip.");
+      return;
+    }
     handleFiles(Array.from((e.dataTransfer && e.dataTransfer.files) || []));
   });
 

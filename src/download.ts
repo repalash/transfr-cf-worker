@@ -73,6 +73,10 @@ export async function handleDownload(
   }
 
   const range = requestedRange ? resolveRange(object.range ?? requestedRange, object.size) : null
+  if (range && range.length < 1) {
+    await body.cancel()
+    return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
+  }
   if (range) {
     headers.set("Content-Length", String(range.length))
     headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${object.size}`)
