@@ -1,18 +1,12 @@
 // Landing page: drop, browse or paste a file, optionally encrypt it with
 // OpenPGP in the browser, and upload it to this origin.
 
+import {encrypt} from "/assets/crypto.js";
+import {copyRow, copyText, formatBytes, showHideButton} from "/assets/ui.js";
+
 const config = JSON.parse(document.getElementById("transfr-config").textContent);
 
-function promptPassphrase() {
-  for (let trial = 0; trial < 3; trial++) {
-    const passphrase = prompt("Enter passphrase to encrypt file with");
-    if (passphrase === null) return null;
-    if (passphrase.length >= 4) return passphrase;
-    alert("Passphrase must be at least 4 characters long.");
-  }
-  alert("You can turn off encryption by clicking the 🔐 button.");
-  return null;
-}
+const MIN_PASSPHRASE_LENGTH = 4;
 
 // The server accepts names up to 256 characters and 960 once percent encoded.
 // Stay well inside both, leaving room for the ".pgp" an encrypted upload adds.
@@ -39,14 +33,8 @@ function safeFilename(name) {
   return build();
 }
 
-function formatBytes(bytes) {
-  if (bytes < 1024) return bytes + " bytes";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
-
 function tooLargeMessage() {
-  return "File size limit exceeded. Max file size is " + config.maxFileSizeLabel + ".";
+  return "That file is too large. The limit is " + config.maxFileSizeLabel + ".";
 }
 
 /** PUTs the file and resolves with the response text; reports progress as 0..1. */
@@ -61,44 +49,238 @@ function put(path, file, onProgress) {
     xhr.addEventListener("load", () => {
       const text = (xhr.responseText || "").trim();
       if (xhr.status >= 200 && xhr.status < 300) resolve(text);
-      else reject(new Error(text || "Upload failed (" + xhr.status + ")"));
+      else reject(new Error(text || "The upload failed (" + xhr.status + ")."));
     });
-    xhr.addEventListener("error", () => reject(new Error("Network error, please try again.")));
-    xhr.addEventListener("abort", () => reject(new Error("Upload cancelled.")));
+    xhr.addEventListener("error", () => reject(new Error("Network error. Check your connection and try again.")));
+    xhr.addEventListener("abort", () => reject(new Error("The upload was cancelled.")));
     xhr.send(file);
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   const dropzoneEl = document.getElementById("dropzone");
-  const dropzoneText = document.getElementById("dropzone-text");
-  const dropzoneResult = document.getElementById("dropzone-result");
   const inputEl = document.getElementById("file-input");
   const encryptBtn = document.getElementById("encrypt-btn");
-  const finalDropzoneText = "Drop or paste another file to transfr.";
+  const statusEl = document.getElementById("status");
+  const statusText = document.getElementById("status-text");
+  const statusProgress = document.getElementById("status-progress");
+  const resultEl = document.getElementById("result");
+
+  // ------------------------------------------------- encryption on or off
 
   // Encryption is on by default; the choice is remembered per browser, where
   // the browser allows storage at all.
-  let doEncrypt = encryptBtn.classList.contains("active");
+  let encryptByDefault = encryptBtn.classList.contains("active");
   try {
     const stored = localStorage.getItem("doEncrypt");
-    if (stored !== null) doEncrypt = stored === "1";
+    if (stored !== null) encryptByDefault = stored === "1";
   } catch {}
-  encryptBtn.classList.toggle("active", doEncrypt);
+  const showEncryptDefault = () => {
+    encryptBtn.classList.toggle("active", encryptByDefault);
+    encryptBtn.setAttribute("aria-pressed", String(encryptByDefault));
+    encryptBtn.textContent = "End-to-end encryption " + (encryptByDefault ? "on" : "off");
+  };
+  showEncryptDefault();
 
   encryptBtn.addEventListener("click", () => {
-    doEncrypt = encryptBtn.classList.toggle("active");
+    encryptByDefault = !encryptByDefault;
+    showEncryptDefault();
     try {
-      localStorage.setItem("doEncrypt", doEncrypt ? "1" : "0");
+      localStorage.setItem("doEncrypt", encryptByDefault ? "1" : "0");
     } catch {}
   });
-  dropzoneEl.addEventListener("click", (e) => {
-    if (e.target && e.target.id !== "encrypt-btn") inputEl.click();
+
+  // --------------------------------------------------- status and result
+
+  /** `fraction` is 0..1, or null while there is nothing to measure. */
+  function showStatus(text, fraction) {
+    statusText.textContent = text;
+    if (fraction === null) statusProgress.removeAttribute("value");
+    else statusProgress.value = fraction;
+    statusEl.hidden = false;
+  }
+
+  function showError(message) {
+    statusEl.hidden = true;
+    resultEl.textContent = "";
+    const text = document.createElement("p");
+    text.className = "result-error";
+    text.textContent = message;
+    resultEl.append(text);
+    resultEl.hidden = false;
+  }
+
+  function showResult(link, name, size, encrypted, decryptedName) {
+    statusEl.hidden = true;
+    resultEl.textContent = "";
+
+    const title = document.createElement("p");
+    title.className = "result-title";
+    const ok = document.createElement("span");
+    ok.className = "ok";
+    ok.textContent = "✓ ";
+    const meta = document.createElement("span");
+    meta.className = "result-meta";
+    meta.textContent = " · " + formatBytes(size) + (encrypted ? " · encrypted" : "") +
+      " · deleted after " + config.ttlLabel;
+    title.append(ok, "Uploaded " + name, meta);
+
+    const linkRow = copyRow(link, "Copy link", "Link to the file");
+    const note = document.createElement("p");
+    note.className = "result-note";
+    note.textContent = "Anyone with this link can download the file" +
+      (encrypted ? ", and needs your passphrase to open it." : ".");
+    resultEl.append(title, linkRow.row, note);
+
+    if (encrypted) {
+      const terminal = document.createElement("p");
+      terminal.className = "result-note";
+      terminal.textContent = "To download and decrypt it in a terminal:";
+      const command = "curl -L " + link + " | gpg --pinentry-mode loopback -d -o " + decryptedName;
+      resultEl.append(terminal, copyRow(command, "Copy", "Command to download and decrypt the file").row);
+    }
+    resultEl.hidden = false;
+
+    // Most people want the link on their clipboard next. Browsers only allow
+    // this without a click in some cases; the button is there for the rest.
+    copyText(link).then((copied) => {
+      if (!copied) return;
+      linkRow.showCopied();
+      note.textContent = "Link copied to your clipboard. " + note.textContent;
+    });
+  }
+
+  // ------------------------------------------------------ the send dialog
+
+  const dialog = document.getElementById("send-dialog");
+  const dialogFile = document.getElementById("send-file");
+  const dialogEncrypt = document.getElementById("send-encrypt");
+  const dialogSecret = document.getElementById("send-secret");
+  const dialogPassphrase = document.getElementById("send-passphrase");
+  const dialogError = document.getElementById("send-error");
+  const dialogPlainNote = document.getElementById("send-plain-note");
+  const dialogSubmit = document.getElementById("send-submit");
+  let answer = null;
+
+  showHideButton(dialogPassphrase, document.getElementById("send-show"));
+
+  function syncDialog() {
+    const encrypting = dialogEncrypt.checked;
+    dialogSecret.hidden = !encrypting;
+    dialogPlainNote.hidden = encrypting;
+    dialogError.hidden = true;
+    dialogSubmit.textContent = encrypting ? "Encrypt and upload" : "Upload without encryption";
+  }
+  dialogEncrypt.addEventListener("change", () => {
+    syncDialog();
+    if (dialogEncrypt.checked) dialogPassphrase.focus();
+  });
+  // A complaint about the passphrase goes away once it is being changed.
+  dialogPassphrase.addEventListener("input", () => { dialogError.hidden = true; });
+
+  document.getElementById("send-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!dialogEncrypt.checked) return dialog.close("plain");
+    if (dialogPassphrase.value.length < MIN_PASSPHRASE_LENGTH) {
+      dialogError.textContent = "Use at least " + MIN_PASSPHRASE_LENGTH + " characters.";
+      dialogError.hidden = false;
+      dialogPassphrase.focus();
+      return;
+    }
+    dialog.close("encrypt");
+  });
+  document.getElementById("send-cancel").addEventListener("click", () => dialog.close("cancel"));
+  dialog.addEventListener("close", () => {
+    const passphrase = dialogPassphrase.value;
+    dialogPassphrase.value = "";
+    if (!answer) return;
+    // Escape closes the dialog with no return value: that is a cancel too.
+    if (dialog.returnValue === "encrypt") answer({passphrase});
+    else if (dialog.returnValue === "plain") answer({passphrase: null});
+    else answer(null);
+    answer = null;
+  });
+
+  /** Asks how to send the file. Resolves to {passphrase} (null for no encryption), or null if cancelled. */
+  function askHowToSend(file, encryptChecked) {
+    dialogFile.textContent = safeFilename(file.name) + " · " + formatBytes(file.size);
+    dialogEncrypt.checked = encryptChecked;
+    dialogPassphrase.type = "password";
+    document.getElementById("send-show").textContent = "Show";
+    syncDialog();
+    dialog.returnValue = "";
+    dialog.showModal();
+    if (encryptChecked) dialogPassphrase.focus();
+    return new Promise((resolve) => { answer = resolve; });
+  }
+
+  // ----------------------------------------------------------- uploading
+
+  async function upload(file, passphrase) {
+    const filename = safeFilename(file.name);
+    const label = filename + " (" + formatBytes(file.size) + ")";
+    // A renamed view of the same data: nothing is copied into memory.
+    let upFile = new File([file], filename, {type: file.type || "application/octet-stream"});
+
+    if (passphrase !== null) {
+      showStatus("Encrypting " + label + "…", null);
+      const ciphertext = await encrypt(await file.arrayBuffer(), filename, file.lastModified || Date.now(), passphrase);
+      upFile = new File([ciphertext], filename + ".pgp", {type: "application/pgp-encrypted"});
+      // Encryption adds a little, so a file just under the limit can go over.
+      if (upFile.size > config.maxFileSizeBytes) throw new Error(tooLargeMessage());
+    }
+
+    showStatus("Uploading " + label + "…", 0);
+    const text = await put("/" + encodeURIComponent(upFile.name), upFile, (fraction) => {
+      showStatus("Uploading " + label + "… " + Math.floor(fraction * 100) + "%", fraction);
+    });
+
+    // Only ever link to a URL this origin produced.
+    const link = new URL(text, location.origin);
+    if (link.origin !== location.origin) throw new Error("Unexpected reply from the server: " + text);
+    showResult(link.href, upFile.name, upFile.size, passphrase !== null, filename);
+  }
+
+  let busy = false;
+
+  /** `alwaysAsk`: show the dialog even when encryption is off, as for pasted content. */
+  async function handleFiles(files, alwaysAsk) {
+    if (!files.length) return;
+    if (busy) return showError("One upload at a time: wait for the current one to finish.");
+    if (files.length > 1) return showError("Only one file can be uploaded at a time. To send several, zip them first.");
+    const file = files[0];
+    if (file.size > config.maxFileSizeBytes) return showError(tooLargeMessage());
+
+    busy = true;
+    try {
+      let passphrase = null;
+      if (encryptByDefault || alwaysAsk) {
+        const choice = await askHowToSend(file, encryptByDefault);
+        if (!choice) return;
+        passphrase = choice.passphrase;
+      }
+      resultEl.hidden = true;
+      await upload(file, passphrase);
+    } catch (e) {
+      console.error(e);
+      showError("The upload did not work. " + (e && e.message ? e.message : "Please try again."));
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ------------------------------------------- drop, browse and paste
+
+  dropzoneEl.addEventListener("click", () => inputEl.click());
+  dropzoneEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    inputEl.click();
   });
 
   // Everything below the dropzone fades out while a file is being dragged
   // over the page, so the drop target is unmistakable.
-  const siblings = Array.from(document.querySelectorAll("#dropzone ~ *"));
+  const siblings = Array.from(document.querySelectorAll("#dropzone ~ *:not(dialog)"));
   let siblingsHidden = false;
 
   function setSiblingsVisible(visible) {
@@ -117,103 +299,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.classList.remove("drop-hover");
     dropzoneEl.classList.remove("drop-hover");
     setSiblingsVisible(true);
-  }
-
-  function showResult(link, encrypted, decryptedName) {
-    dropzoneResult.textContent = "";
-    const anchor = document.createElement("a");
-    anchor.href = link;
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    anchor.textContent = link;
-    dropzoneResult.append("Upload finished", document.createElement("br"), anchor,
-      " (deletes in " + config.ttlLabel + ")");
-    if (encrypted) {
-      dropzoneResult.append(document.createElement("br"),
-        "It can be decrypted with the passphrase you used to encrypt it:");
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      code.textContent = "curl -L " + link + " | gpg --pinentry-mode loopback -d -o " + decryptedName;
-      pre.append(code);
-      dropzoneResult.append(pre);
-    }
-    dropzoneResult.style.display = "unset";
-  }
-
-  function showError(message) {
-    dropzoneResult.textContent = "";
-    const span = document.createElement("span");
-    span.style.color = "red";
-    span.textContent = message;
-    dropzoneResult.append(span);
-    dropzoneResult.style.display = "unset";
-  }
-
-  /** Resolves to false when the user backed out before anything was sent. */
-  async function upload(file) {
-    const filename = safeFilename(file.name);
-    const label = filename + " (" + formatBytes(file.size) + ")";
-    let encrypted = false;
-    // A renamed view of the same data: nothing is copied into memory.
-    let upFile = new File([file], filename, {type: file.type || "application/octet-stream"});
-
-    if (doEncrypt) {
-      const passphrase = promptPassphrase();
-      if (!passphrase) return false;
-      dropzoneText.innerText = label + ": Encrypting...";
-      const message = await openpgp.createMessage({
-        binary: new Uint8Array(await file.arrayBuffer()),
-        filename: filename,
-        date: new Date(file.lastModified || Date.now()),
-        format: "binary",
-      });
-      const ciphertext = await openpgp.encrypt({
-        message,
-        passwords: [passphrase], // multiple passwords possible later
-        format: "binary", // don't ASCII armor (for Uint8Array output)
-      });
-      encrypted = true;
-      upFile = new File([ciphertext], filename + ".pgp", {type: "application/pgp-encrypted"});
-      // Encryption adds a little, so a file just under the limit can go over.
-      if (upFile.size > config.maxFileSizeBytes) throw new Error(tooLargeMessage());
-    }
-
-    dropzoneText.innerText = label + ": Uploading...";
-    const text = await put("/" + encodeURIComponent(upFile.name), upFile, (fraction) => {
-      dropzoneText.innerText = label + ": Uploading... " + Math.floor(fraction * 100) + "%";
-    });
-
-    // Only ever link to a URL this origin produced.
-    const link = new URL(text, location.origin);
-    if (link.origin !== location.origin) throw new Error("Unexpected upload response: " + text);
-    showResult(link.href, encrypted, filename);
-    return true;
-  }
-
-  let busy = false;
-
-  function handleFiles(files) {
-    if (!files.length || busy) return;
-    if (files.length > 1) {
-      alert("Only one file can be uploaded at a time.");
-      return;
-    }
-    const file = files[0];
-    if (file.size > config.maxFileSizeBytes) {
-      alert(tooLargeMessage());
-      return;
-    }
-    const idleText = dropzoneText.innerText;
-    busy = true;
-    upload(file).then((sent) => {
-      dropzoneText.innerText = sent ? finalDropzoneText : idleText;
-    }).catch((e) => {
-      console.error(e);
-      showError("Error uploading file. " + (e && e.message ? e.message : "Please try again later."));
-      dropzoneText.innerText = idleText;
-    }).finally(() => {
-      busy = false;
-    });
   }
 
   document.body.addEventListener("dragover", (e) => {
@@ -236,20 +321,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
       return !!entry && entry.isDirectory;
     };
-    if (items.some(isFolder)) {
-      alert("Folders can't be uploaded. Zip the folder and upload the zip.");
-      return;
-    }
-    handleFiles(Array.from((e.dataTransfer && e.dataTransfer.files) || []));
+    if (items.some(isFolder)) return showError("Folders can't be uploaded. Zip the folder and upload the zip.");
+    handleFiles(Array.from((e.dataTransfer && e.dataTransfer.files) || []), false);
   });
 
   inputEl.addEventListener("change", () => {
     const files = Array.from(inputEl.files || []);
     inputEl.value = ""; // so choosing the same file again fires change again
-    handleFiles(files);
+    handleFiles(files, false);
   });
 
   document.body.addEventListener("paste", (e) => {
+    // Typing a passphrase is not an upload.
+    if (dialog.open) return;
     // The event's data is only readable while the event is being dispatched,
     // so it is read here, before anything asynchronous.
     const data = e.clipboardData;
@@ -261,8 +345,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (!file) return;
     e.preventDefault();
-    if (!doEncrypt &&
-      !confirm("Are you sure you want to upload the file or text from the clipboard WITHOUT encryption?")) return;
-    handleFiles([file]);
+    // Pasting is easy to do by accident, so it always asks first.
+    handleFiles([file], true);
   });
 });

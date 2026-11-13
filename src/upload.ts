@@ -128,10 +128,17 @@ async function handleFormUpload(
   return await store(request, filename, new Uint8Array(await file.arrayBuffer()), file.type, url, config)
 }
 
-/** Null if the name can be stored, otherwise the response explaining why not. */
-function validateFilename(filename: string, url: URL): Response | null {
+/**
+ * Null if the name can be stored, otherwise the response explaining why not.
+ * `example` is the URL shown when the name is missing.
+ */
+export function validateFilename(
+  filename: string,
+  url: URL,
+  example = `${url.origin}/filename.txt`,
+): Response | null {
   if (filename.length < 1) {
-    return errorResponse("no_filename", `No filename: put one in the URL, like ${url.origin}/filename.txt`, 400)
+    return errorResponse("no_filename", `No filename: put one in the URL, like ${example}`, 400)
   }
   // Counted decoded, so a name in a non-Latin script gets as many characters
   // as an ASCII one; the encoded form has its own, storage driven, limit.
@@ -198,7 +205,7 @@ function emptyBody(url: URL): Response {
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */
-function parseContentLength(header: string | null): number | null {
+export function parseContentLength(header: string | null): number | null {
   if (header === null || !/^\d+$/.test(header.trim())) return null
   const length = Number(header.trim())
   return Number.isSafeInteger(length) ? length : null

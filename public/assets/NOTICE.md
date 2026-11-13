@@ -10,8 +10,10 @@ site at runtime.
 | `fonts/lato-*.woff` | Lato, regular and black | as shipped by StackEdit | SIL Open Font License 1.1 |
 | `fonts/roboto-mono-*.woff` | Roboto Mono, regular and bold | as shipped by StackEdit | Apache-2.0 |
 
-`openpgp.min.js` is pinned by the `integrity` hash on its `<script>` tag in
-`html/*.html`. To update it, replace the file and the hash together:
+`openpgp.min.js` is loaded by a worker (`crypto-worker.js`), where the browser
+cannot check an integrity hash, so `scripts/check-assets.mjs` (part of
+`npm test`) checks it against a pinned hash instead. To update it, replace the
+file and the hash in that script together:
 
 ```sh
 openssl dgst -sha384 -binary public/assets/openpgp.min.js | openssl base64 -A

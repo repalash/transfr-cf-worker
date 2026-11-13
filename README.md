@@ -5,6 +5,10 @@ back a URL, and the file is gone after 24 hours. Files
 are stored in [R2](https://developers.cloudflare.com/r2/) and can be encrypted
 end-to-end in the browser (OpenPGP) before they ever leave the machine.
 
+Besides stored files there are two live modes: a **pipe**, which connects a
+sender to a receiver and stores nothing, and a **stream**, a stored file that
+keeps growing while others read or follow it.
+
 Check it out: https://transfr.one
 
 ## API
@@ -16,6 +20,10 @@ Check it out: https://transfr.one
 | `PUT`/`POST` | `/<name>`  | Upload a file, returns the URL to download it from.                                       |
 | `GET`/`HEAD` | `/<key>`   | Download a file. Opening the link in a browser shows an HTML page instead; `?raw` always returns the bytes. |
 | `OPTIONS`    | any        | CORS preflight.                                                                           |
+| `PUT`/`POST` | `/pipe/<name>` | Send through a pipe. `GET` the same path to receive. Nothing is stored.              |
+| `POST`       | `/stream/<name>` | Create a stream; replies with a read link and a write link.                        |
+| `PUT`/`POST` | the write link | Append to the stream. `&close` ends it.                                              |
+| `GET`/`HEAD` | the read link | Read the stream: all of it, `?from=N`, `?wait=N` or `?follow`.                        |
 | `GET`        | `/robots.txt`, `/sitemap.xml` | For search engines; both name the canonical address.                  |
 
 ```sh
@@ -69,6 +77,33 @@ render in place (images other than SVG, video, audio, `text/plain`), so an
 uploaded HTML file cannot run script on the worker's origin. Files and file
 pages are sent with `X-Robots-Tag: noindex`.
 
+### Pipe and stream
+
+```sh
+# pipe: both sides use the same name, in either order; nothing is stored
+curl -T ./backup.tar https://transfr.one/pipe/7f3a9c-backup
+curl https://transfr.one/pipe/7f3a9c-backup -o backup.tar
+
+# stream: create, then write with the write link and read with the read link
+curl -X POST https://transfr.one/stream/build.log
+tail -f build.log | curl -T - "<write link>"
+curl -N "<read link>?follow"
+```
+
+Each pipe or stream is one [Durable Object](https://developers.cloudflare.com/durable-objects/):
+every request for the same one reaches the same object, which is what lets it
+hand a sender's bytes to a receiver, put a stream's appends in order and tell
+readers about new data. A pipe keeps nothing. A stream's bytes are stored in
+the object's own SQLite database and an alarm deletes them when the stream
+expires. The full behaviour (offsets, waiting, following, limits, error codes)
+is in the guide at `/llms.txt`.
+
+Sending is limited per client address (20 uploads, pipe sends and new streams
+a minute; 120 writes a minute to existing streams) with
+Cloudflare's [rate limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+It is counted per Cloudflare location, so it is a brake on abuse rather than an
+exact quota.
+
 ## Layout
 
 ```
@@ -77,15 +112,21 @@ html/            the pages, as plain files with {{TOKEN}} placeholders
   access.html      what a browser sees for an uploaded file, with PGP decryption
   llms.txt         the usage guide as plain text, for curl, scripts and AI agents
 public/assets/   static files for the pages, served by Cloudflare directly
-  index.js         landing page script: drop, paste, encrypt, upload
-  access.js        file page script: download and decrypt
+  index.js         landing page script: drop, paste, upload dialog, progress, copy link
+  access.js        file page script: passphrase dialog, download and decrypt
+  ui.js            shared by both: copy to clipboard, show/hide passphrase
+  crypto.js        encrypt and decrypt, by handing the work to crypto-worker.js
+  crypto-worker.js   web worker that runs OpenPGP, so the page never freezes
   openpgp.min.js   OpenPGP.js, pinned by an integrity hash (see NOTICE.md)
-  style.css, fonts/
+  style.css        the StackEdit stylesheet; app.css has the pages' own styles
+  fonts/
   og.png, icon.svg, apple-touch-icon.png   share image and icons (favicon.ico is in public/)
 src/
   index.ts         entry point and routing
   upload.ts        PUT/POST: validation, form uploads, storing the object
   download.ts      GET/HEAD: ranges, conditional requests, download headers
+  channels.ts      routes /pipe/ and /stream/ to the Durable Object
+  channel.ts       the Durable Object: connects pipes, stores and serves streams
   site.ts          the landing page, text guide, robots.txt and sitemap
   pages.ts         fills the HTML templates
   templates.ts     single pass {{TOKEN}} substitution
@@ -105,7 +146,8 @@ TypeScript.
 
 The pages load nothing from other sites: scripts, stylesheet and fonts are in
 `public/assets` (the `[assets]` directory in `wrangler.toml`), and the page
-Content-Security-Policy allows scripts from this origin only, none inline.
+Content-Security-Policy allows scripts and workers from this origin only, none
+inline.
 
 ## Development
 
@@ -170,9 +212,20 @@ Variables in `wrangler.toml` under `[vars]`:
 | `R2_MAX_BUFFERED_FILE_SIZE_BYTES` | `21000000` | Largest upload without a `Content-Length` (chunked) or sent as a form, both of which are buffered in memory. Capped at `R2_MAX_FILE_SIZE_BYTES`. |
 | `R2_DEFAULT_FILE_TTL`    | `86400`    | File lifetime in seconds.                                       |
 | `RAW_ONLY_HOSTS`         | –          | Hosts that always serve bytes, never the HTML page, e.g. for embedding. |
+| `PIPE_WAIT_SECONDS`      | `300`      | How long one side of a pipe waits for the other.                |
+| `STREAM_MAX_BYTES`       | `1073741824` | Largest a stream may grow.                                    |
+| `STREAM_IDLE_TTL`        | `86400`    | A stream is deleted this many seconds after its last write...   |
+| `STREAM_MAX_TTL`         | `604800`   | ...and this many after its creation at the latest.              |
+| `STREAM_FOLLOW_SECONDS`  | `3600`     | How long a `?follow` connection is kept open.                   |
 | `CANONICAL_ORIGIN`       | –          | The address search engines should index, e.g. `https://transfr.one`. The landing page on any other host is marked `noindex` and points here. Unset, each host is its own canonical address. |
 
 An invalid value is a startup error rather than a silently ignored limit.
+
+Pipes and streams need the `CHANNELS` Durable Object binding and its migration,
+and the rate limits need the `UPLOAD_LIMITER` and `STREAM_WRITE_LIMITER`
+bindings; all are in `wrangler.toml`. Without `CHANNELS` the two modes answer
+501 and stored files work as before; without a limiter binding, what it covers
+is not rate limited.
 
 R2 has to know an object's size before it stores it. An upload with a
 `Content-Length` (browsers, `curl --upload-file`, `curl --data-binary @file`)

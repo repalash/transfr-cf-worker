@@ -1,6 +1,11 @@
 name = "transfr-cf"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
+# So a pipe can notice when a side that was waiting has disconnected: the
+# first reports a client disconnect on the request, the second carries it
+# through the worker to the Durable Object. Best effort: local development
+# does not report disconnects, so this is not covered by a test.
+compatibility_flags = ["enable_request_signal", "request_signal_passthrough"]
 workers_dev = true
 # The live worker has Logpush on; a deploy without this would turn it off.
 logpush = true
@@ -40,6 +45,30 @@ RAW_ONLY_HOSTS = "bee.transfr.one"
 # this worker answers on is marked noindex and points here. Deploying your own
 # copy: set this to your address, or remove it.
 CANONICAL_ORIGIN = "https://transfr.one"
+
+# Pipes and streams: one Durable Object per pipe or stream connects the two
+# sides, and stores a stream's bytes in its own SQLite database.
+[[durable_objects.bindings]]
+name = "CHANNELS"
+class_name = "Channel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Channel"]
+
+# Uploads, pipe sends and new streams a client may start per minute. Counted
+# per Cloudflare location, so it is a brake on abuse, not an exact quota.
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "481516"
+simple = { limit = 20, period = 60 }
+
+# Writes to an existing stream: a script that logs a line at a time sends many
+# more requests than someone uploading files.
+[[ratelimits]]
+name = "STREAM_WRITE_LIMITER"
+namespace_id = "481517"
+simple = { limit = 120, period = 60 }
 
 [observability]
 enabled = true

@@ -14,11 +14,9 @@
   <meta property="og:image" content="{{SHARE_IMAGE_URL}}">
   <meta name="twitter:card" content="summary">
   <link rel="stylesheet" href="/assets/style.css"/>
+  <link rel="stylesheet" href="/assets/app.css"/>
   <style>
-      #transfr_one {
-          margin-bottom: 2rem;
-      }
-
+      /* Which of the two sets of links and commands is shown; set by the worker. */
       .if_encrypted {
           display: {{ENCRYPTED_DISPLAY}};
       }
@@ -26,18 +24,8 @@
       .if_not_encrypted {
           display: {{NOT_ENCRYPTED_DISPLAY}};
       }
-
-      pre {
-          max-width: 100%;
-      }
-
-      #result_text {
-          font-size: 0.9rem;
-      }
   </style>
   <script id="transfr-file" type="application/json">{{FILE_INFO_JSON}}</script>
-  <!-- OpenPGP.js 5.10.2, served from this origin; the hash pins the exact file. -->
-  <script src="/assets/openpgp.min.js" integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"></script>
   <script type="module" src="/assets/access.js"></script>
 </head>
 
@@ -83,6 +71,22 @@ response <span class="token operator">=</span> requests<span class="token punctu
       Check out the source code and host your own transfr worker: <a
         href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>
   </ul>
+  <dialog id="open-dialog" aria-labelledby="open-title">
+    <form id="open-form" method="dialog">
+      <h3 id="open-title">Decrypt file</h3>
+      <p class="dialog-file">{{FILE_NAME}}</p>
+      <label class="field-label" for="open-passphrase">Passphrase</label>
+      <div class="field">
+        <input type="password" id="open-passphrase" autocomplete="off" required>
+        <button type="button" class="btn" id="open-show">Show</button>
+      </div>
+      <p class="hint">The one the sender chose. The file is decrypted in your browser.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="open-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Download and decrypt</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 </body>
 

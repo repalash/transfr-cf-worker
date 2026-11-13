@@ -26,6 +26,22 @@ export interface Env {
    * host the worker answers on is its own canonical address.
    */
   CANONICAL_ORIGIN?: string
+  /** Seconds a pipe's sender or receiver waits for the other side. Default 300. */
+  PIPE_WAIT_SECONDS?: string | number
+  /** Largest a stream may grow, in bytes. Default 1 GB (1,073,741,824). */
+  STREAM_MAX_BYTES?: string | number
+  /** Seconds after its last write that a stream is deleted. Default 86400. */
+  STREAM_IDLE_TTL?: string | number
+  /** Seconds after its creation that a stream is deleted at the latest. Default 604800. */
+  STREAM_MAX_TTL?: string | number
+  /** Seconds a `?follow` connection is kept open before the reader has to reconnect. Default 3600. */
+  STREAM_FOLLOW_SECONDS?: string | number
+  /** The Durable Object that connects pipes and stores streams. Unbound, both are switched off. */
+  CHANNELS?: DurableObjectNamespace
+  /** Rate limiter for uploads, pipe sends and new streams, keyed by client address. Unbound, they are not limited. */
+  UPLOAD_LIMITER?: RateLimit
+  /** Rate limiter for writes to an existing stream, which come more often than uploads. Unbound, not limited. */
+  STREAM_WRITE_LIMITER?: RateLimit
   /** R2 bucket bindings (and anything else Cloudflare injects). */
   [binding: string]: unknown
 }

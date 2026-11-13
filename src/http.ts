@@ -8,11 +8,13 @@ export const NO_INDEX = "noindex, nofollow"
 /**
  * Content Security Policy for the worker's own HTML pages. Scripts, styles and
  * fonts all come from this origin (public/assets), with no inline script, so
- * markup that somehow got into a page still could not run anything.
+ * markup that somehow got into a page still could not run anything. The one
+ * worker is the one that runs OpenPGP.js off the main thread.
  */
 const PAGE_CSP = [
   "default-src 'none'",
   "script-src 'self'",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "img-src 'self' data: blob:",
@@ -70,9 +72,14 @@ export function errorResponse(
   })
 }
 
-export function notFound(ttlLabel?: string): Response {
-  const lifetime = ttlLabel ? `Files are deleted ${ttlLabel} after upload.` : "Files are deleted a while after upload."
-  return errorResponse("not_found", `Not found: the link is wrong, or the file has expired. ${lifetime}`, 404)
+/** `origin`, when given, adds where to find the instructions: a wrong link is often a guess at the API. */
+export function notFound(ttlLabel: string, origin?: string): Response {
+  const usage = origin ? ` Usage: ${origin}/llms.txt` : ""
+  return errorResponse(
+    "not_found",
+    `Not found: the link is wrong, or the file has expired. Files are deleted ${ttlLabel} after upload.${usage}`,
+    404,
+  )
 }
 
 /**

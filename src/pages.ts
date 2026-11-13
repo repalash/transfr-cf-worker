@@ -22,6 +22,8 @@ export function renderIndexPage(origin: string, canonicalOrigin: string, config:
     MAX_FILE_SIZE_LABEL: escapeHtml(maxFileSizeLabel),
     MAX_BUFFERED_FILE_SIZE_LABEL: escapeHtml(formatBytes(config.maxBufferedFileSizeBytes)),
     TTL_LABEL: escapeHtml(ttlLabel),
+    STREAM_MAX_LABEL: escapeHtml(formatBytes(config.streamMaxBytes)),
+    STREAM_IDLE_LABEL: escapeHtml(formatDuration(config.streamIdleTtlSeconds)),
     // Search engines and share previews are pointed at one address, whichever
     // host the page was fetched from.
     DESCRIPTION: escapeHtml(description),
@@ -49,6 +51,11 @@ export function renderGuide(origin: string, config: Config): string {
     MAX_FILE_SIZE_LABEL: formatBytes(config.maxFileSizeBytes),
     MAX_FILE_SIZE_BYTES: String(config.maxFileSizeBytes),
     MAX_BUFFERED_FILE_SIZE_LABEL: formatBytes(config.maxBufferedFileSizeBytes),
+    PIPE_WAIT_LABEL: formatDuration(config.pipeWaitSeconds),
+    STREAM_MAX_LABEL: formatBytes(config.streamMaxBytes),
+    STREAM_IDLE_LABEL: formatDuration(config.streamIdleTtlSeconds),
+    STREAM_MAX_TTL_LABEL: formatDuration(config.streamMaxTtlSeconds),
+    STREAM_FOLLOW_LABEL: formatDuration(config.streamFollowSeconds),
   })
 }
 
