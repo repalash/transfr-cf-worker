@@ -1,15 +1,19 @@
 /**
- * Object keys look like `<expiry-hex>-<random-hex>/<file name>`.
+ * Object keys look like `<random-hex>-<expiry-hex>/<file name>`.
  *
  * The expiry is part of the key so that the worker can refuse to serve a file
  * whose lifetime has passed, without depending on the R2 lifecycle rule (which
  * only has day granularity) having already removed the object.
+ *
+ * This is the layout the worker has always used, so links made by earlier
+ * versions (which had only one to four random digits) still parse, and still
+ * expire on time.
  */
 
 /** Bytes of randomness in a key. The key is the only secret protecting a file. */
 const RANDOM_BYTES = 6
 
-const KEY_PREFIX_RE = /^([0-9a-f]{1,12})-([0-9a-f]{1,32})(?:\/|$)/
+const KEY_PREFIX_RE = /^([0-9a-f]{1,32})-([0-9a-f]{1,12})(?:\/|$)/
 
 export interface ObjectKey {
   key: string
@@ -19,7 +23,7 @@ export interface ObjectKey {
 
 export function createObjectKey(filename: string, ttlSeconds: number, now: number = Date.now()): ObjectKey {
   const expiresAt = Math.floor(now / 1000) + ttlSeconds
-  return { key: `${expiresAt.toString(16)}-${randomHex(RANDOM_BYTES)}/${filename}`, expiresAt }
+  return { key: `${randomHex(RANDOM_BYTES)}-${expiresAt.toString(16)}/${filename}`, expiresAt }
 }
 
 export function randomHex(bytes: number): string {
@@ -32,7 +36,7 @@ export function randomHex(bytes: number): string {
 export function parseExpiry(key: string): number | null {
   const match = KEY_PREFIX_RE.exec(key)
   if (!match) return null
-  const expiresAt = Number.parseInt(match[1], 16)
+  const expiresAt = Number.parseInt(match[2], 16)
   return Number.isSafeInteger(expiresAt) ? expiresAt : null
 }
 

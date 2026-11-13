@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { escapeHtml, jsonForScript } from "../src/escape"
+import { escapeHtml, isShellPlain, jsonForScript, shellSafeName, stringLiteral } from "../src/escape"
 import { formatBytes, formatDuration, formatRelativeTo } from "../src/format"
 import { createObjectKey, decodeFilename, filenameFromKey, isExpired, parseExpiry } from "../src/keys"
 import { contentDisposition, isInlineSafe, sanitizeContentType } from "../src/mime"
@@ -10,8 +10,16 @@ describe("keys", () => {
     const now = 1_700_000_000_000
     const { key, expiresAt } = createObjectKey("file.txt", 86_400, now)
     expect(expiresAt).toBe(1_700_000_000 + 86_400)
-    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{12}\/file\.txt$/)
+    expect(key).toMatch(/^[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
     expect(parseExpiry(key)).toBe(expiresAt)
+  })
+
+  it("still reads the expiry of links made by earlier versions", () => {
+    // Earlier versions used the same layout with one to four random digits.
+    expect(parseExpiry("22e3-63401de2/file.txt")).toBe(0x63401de2)
+    expect(parseExpiry("7-63401de2/file.txt")).toBe(0x63401de2)
+    expect(isExpired("22e3-63401de2/file.txt", (0x63401de2 - 1) * 1000)).toBe(false)
+    expect(isExpired("22e3-63401de2/file.txt", 0x63401de2 * 1000)).toBe(true)
   })
 
   it("does not repeat keys", () => {
@@ -34,7 +42,7 @@ describe("keys", () => {
   })
 
   it("extracts and decodes the file name", () => {
-    expect(filenameFromKey("68d0f3a2-3f1c9b27d4e0/dir/file.txt")).toBe("dir/file.txt")
+    expect(filenameFromKey("3f1c9b27d4e0-68d0f3a2/dir/file.txt")).toBe("dir/file.txt")
     expect(filenameFromKey("file.txt")).toBe("file.txt")
     expect(decodeFilename("my%20file.txt")).toBe("my file.txt")
     expect(decodeFilename("100%.txt")).toBe("100%.txt")
@@ -54,6 +62,39 @@ describe("escape", () => {
     expect(json).not.toContain("<")
     expect(json).not.toContain(">")
     expect(JSON.parse(json).name).toBe("</script><script>alert(1)</script>")
+  })
+})
+
+describe("values shown in commands", () => {
+  it("accepts only values that every shell leaves alone", () => {
+    expect(isShellPlain("https://transfr.one/3f1c9b27d4e0-68d0f3a2/my%20file.txt")).toBe(true)
+    expect(isShellPlain("notes_v2.tar.gz")).toBe(true)
+    for (const value of [
+      "a b", "a;id", "$(whoami)", "`id`", "a&b", "a|b", "a>b", "~root", "*", "a\\b", "", "-rf", 'a"b', "it's",
+      // cmd.exe: variables and the escape character.
+      "%PATH%", "100%", "a^b", "a(b)", "a,b", "a=b", "a!b", "a#b",
+    ]) {
+      expect(isShellPlain(value), value).toBe(false)
+    }
+  })
+
+  it("reduces a file name to characters no shell interprets", () => {
+    expect(shellSafeName("notes.txt")).toBe("notes.txt")
+    expect(shellSafeName("my file (1).txt")).toBe("my_file_1_.txt")
+    expect(shellSafeName("a;id;$(whoami)'x.txt")).toBe("a_id_whoami_x.txt")
+    expect(shellSafeName("x&calc.txt")).toBe("x_calc.txt")
+    expect(shellSafeName("文档 résumé.txt")).toBe("文档_résumé.txt")
+    expect(shellSafeName("-rf")).toBe("rf")
+    expect(shellSafeName("..")).toBe("download")
+    expect(shellSafeName("")).toBe("download")
+    for (const name of ["a b", "$(x)", "`x`", "x&y", "%PATH%", "a^b", "it's", '"q"']) {
+      expect(isShellPlain(shellSafeName(name)), name).toBe(true)
+    }
+  })
+
+  it("produces a string literal that cannot be broken out of", () => {
+    expect(stringLiteral("https://x/a'b")).toBe(`"https://x/a'b"`)
+    expect(stringLiteral('a"b\\c\n')).toBe('"a\\"b\\\\c\\n"')
   })
 })
 

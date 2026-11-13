@@ -7,8 +7,13 @@
 export interface Env {
   /** Name of the R2 bucket binding to use, e.g. `TEMP_STORE_R2_1`. */
   R2_DEFAULT_NAMESPACE: string
-  /** Maximum accepted upload size, in bytes. */
+  /** Maximum accepted upload size, in bytes, for uploads with a Content-Length. */
   R2_MAX_FILE_SIZE_BYTES?: string | number
+  /**
+   * Maximum size, in bytes, of an upload without a Content-Length (chunked),
+   * which has to be buffered in memory. Capped at R2_MAX_FILE_SIZE_BYTES.
+   */
+  R2_MAX_BUFFERED_FILE_SIZE_BYTES?: string | number
   /** Lifetime of an uploaded file, in seconds. */
   R2_DEFAULT_FILE_TTL?: string | number
   /**

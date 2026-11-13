@@ -2,6 +2,8 @@ name = "transfr-cf"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
 workers_dev = true
+# The live worker has Logpush on; a deploy without this would turn it off.
+logpush = true
 
 # The HTML pages live in html/ and are bundled as text modules.
 [[rules]]
@@ -9,16 +11,27 @@ type = "Text"
 globs = ["**/*.html"]
 fallthrough = false
 
+# Scripts, stylesheet and fonts for the pages. Cloudflare serves a request
+# that matches a file in here directly; everything else goes to the worker.
+[assets]
+directory = "./public"
+
 # Set bucket_name to the R2 bucket created with
 # `wrangler r2 bucket create <name>`; the binding name has to match
 # R2_DEFAULT_NAMESPACE below.
 [[r2_buckets]]
 binding = "TEMP_STORE_R2_1"
-bucket_name = "transfr-temp-store"
+bucket_name = "transfr-temp-bucket-2"
 
 [vars]
 R2_DEFAULT_NAMESPACE = "TEMP_STORE_R2_1"
-R2_MAX_FILE_SIZE_BYTES = "21000000" # 20 MB
+# Uploads with a Content-Length stream straight to R2. Cloudflare rejects
+# request bodies over 100 MB on the Free zone plan (200 MB Business, 500 MB
+# Enterprise) before they reach the worker, so going higher has no effect.
+R2_MAX_FILE_SIZE_BYTES = "100000000" # 100 MB (shown as 95 MB, in 1024-based units)
+# Uploads without a Content-Length (chunked, e.g. `curl -T -`) are buffered in
+# the Worker's 128 MB of memory, so they get a lower limit.
+R2_MAX_BUFFERED_FILE_SIZE_BYTES = "21000000" # 20 MB
 R2_DEFAULT_FILE_TTL = "86400" # 24 hours
 # Hosts that always serve the stored bytes instead of the HTML landing page.
 RAW_ONLY_HOSTS = "bee.transfr.one"

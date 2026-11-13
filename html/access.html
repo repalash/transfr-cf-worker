@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>{{FILE_NAME}} - transfr.one</title>
-  <link rel="stylesheet" href="https://stackedit.io/style.css"/>
+  <link rel="stylesheet" href="/assets/style.css"/>
   <style>
       #transfr_one {
           margin-bottom: 2rem;
@@ -29,66 +29,9 @@
       }
   </style>
   <script id="transfr-file" type="application/json">{{FILE_INFO_JSON}}</script>
-  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.10.2/dist/openpgp.min.js"
-          integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"
-          crossorigin="anonymous"></script>
-  <script type="module">
-    const file = JSON.parse(document.getElementById("transfr-file").textContent);
-    const ARMOR_HEADER = "-----BEGIN PGP MESSAGE-----";
-
-    /** Accepts both binary (`gpg -c`) and ASCII armored (`gpg -ac`) messages. */
-    async function readMessage(bytes) {
-      const head = new TextDecoder().decode(bytes.slice(0, ARMOR_HEADER.length));
-      if (head === ARMOR_HEADER) {
-        return openpgp.readMessage({armoredMessage: new TextDecoder().decode(bytes)});
-      }
-      return openpgp.readMessage({binaryMessage: bytes});
-    }
-
-    function saveFile(data, name) {
-      const url = URL.createObjectURL(new File([data], name, {type: "application/octet-stream"}));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = name;
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      const resultText = document.getElementById("result_text");
-      const decryptLink = document.querySelector(".main-link-enc");
-      if (!file.encrypted || !decryptLink) return;
-
-      let downloading = false;
-      decryptLink.addEventListener("click", async (e) => {
-        e.preventDefault();
-        if (downloading) return;
-        downloading = true;
-        try {
-          const passphrase = prompt("Enter passphrase to decrypt the file with");
-          if (passphrase === null) return;
-          resultText.innerText = "Downloading file...";
-          const res = await fetch(file.rawUrl);
-          if (!res.ok) throw new Error("Download failed: " + res.status);
-          const encrypted = new Uint8Array(await res.arrayBuffer());
-          resultText.innerText = "Decrypting file...";
-          const decrypted = await openpgp.decrypt({
-            message: await readMessage(encrypted),
-            passwords: [passphrase],
-            format: "binary",
-          });
-          saveFile(decrypted.data, file.decryptedName);
-          resultText.innerText = "File downloaded.";
-        } catch (err) {
-          console.error(err);
-          resultText.innerText = "Could not decrypt the file. Check the passphrase, " +
-            "or download the raw file and decrypt it with gpg.";
-        } finally {
-          downloading = false;
-        }
-      });
-    });
-  </script>
+  <!-- OpenPGP.js 5.10.2, served from this origin; the hash pins the exact file. -->
+  <script src="/assets/openpgp.min.js" integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"></script>
+  <script type="module" src="/assets/access.js"></script>
 </head>
 
 <body class="stackedit">
@@ -104,14 +47,14 @@
 
   <p>The file can simply be downloaded with the link above or in terminal/code.</p>
   <h3 id="with-curl-1">With <code>curl</code></h3>
-  <pre class="if_encrypted"><code>curl -L {{FILE_LINK}} | gpg --pinentry-mode loopback -d -o {{FILE_NAME_RAW}}
+  <pre class="if_encrypted"><code>{{CURL_COMMAND_ENC}}
 </code></pre>
-  <pre class="if_not_encrypted"><code>curl -L {{FILE_LINK}} -o {{FILE_NAME}}
+  <pre class="if_not_encrypted"><code>{{CURL_COMMAND}}
 </code></pre>
   <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
   <pre class=" language-javascript"><code class="prism  language-javascript"><span
     class="token function">fetch</span><span class="token punctuation">(</span><span
-    class="token string">'{{FILE_LINK}}'</span><span
+    class="token string">{{FILE_LINK_STR}}</span><span
     class="token punctuation">)</span><span class="token punctuation">;</span>
 </code></pre>
   <h3 id="with-python-1">With <code>python</code></h3>
@@ -119,7 +62,7 @@
 
 response <span class="token operator">=</span> requests<span class="token punctuation">.</span>get<span
       class="token punctuation">(</span><span
-      class="token string">'{{FILE_LINK}}'</span><span class="token punctuation">)</span>
+      class="token string">{{FILE_LINK_STR}}</span><span class="token punctuation">)</span>
 </code></pre>
   <h2 id="notes">Notes</h2>
   <ul>

@@ -3,17 +3,17 @@ import { corsHeaders } from "./cors"
 const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8"
 
 /**
- * Content Security Policy for the worker's own HTML pages. The pages load
- * OpenPGP.js and simple-dropzone from jsDelivr and the StackEdit stylesheet,
- * and talk to this origin only; everything else is denied.
+ * Content Security Policy for the worker's own HTML pages. Scripts, styles and
+ * fonts all come from this origin (public/assets), with no inline script, so
+ * markup that somehow got into a page still could not run anything.
  */
 const PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-inline' https://cdn.jsdelivr.net",
-  "style-src 'unsafe-inline' https://stackedit.io",
-  "font-src https://stackedit.io data:",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
   "img-src 'self' data: blob:",
-  "connect-src 'self' https://cdn.jsdelivr.net",
+  "connect-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
@@ -26,7 +26,10 @@ export function textResponse(body: string, status = 200, extraHeaders: Record<st
   })
 }
 
-export function htmlResponse(html: string, { withBody = true }: { withBody?: boolean } = {}): Response {
+export function htmlResponse(
+  html: string,
+  { withBody = true, extraHeaders = {} }: { withBody?: boolean; extraHeaders?: Record<string, string> } = {},
+): Response {
   return new Response(withBody ? html : null, {
     status: 200,
     headers: {
@@ -35,6 +38,7 @@ export function htmlResponse(html: string, { withBody = true }: { withBody?: boo
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
       ...corsHeaders,
+      ...extraHeaders,
     },
   })
 }

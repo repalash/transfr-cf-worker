@@ -30,3 +30,29 @@ export function jsonForScript(value: unknown): string {
     .replace(/&/g, "\\u0026")
     .replace(LINE_SEPARATORS, (char) => (char.charCodeAt(0) === 0x2028 ? "\\u2028" : "\\u2029"))
 }
+
+/**
+ * True if a value can sit on a command line as it is, in any common shell: sh
+ * and friends, PowerShell and Windows cmd.exe. Quoting is not an answer here,
+ * because the shells do not agree on it (cmd.exe ignores single quotes), so
+ * the pages only ever put values that pass this into a command.
+ */
+export function isShellPlain(value: string): boolean {
+  return /^(?:[A-Za-z0-9_/:.-]|%[0-9A-Fa-f]{2})+$/.test(value) && !value.startsWith("-")
+}
+
+/**
+ * A file name reduced to characters no shell interprets: letters and digits of
+ * any script, `_`, `.` and `-`. Used as the name a command saves a file under.
+ */
+export function shellSafeName(name: string): string {
+  return name.replace(/[^\p{L}\p{N}_.-]+/gu, "_").replace(/^[-.]+/, "") || "download"
+}
+
+/**
+ * A double quoted string literal that is valid in both JavaScript and Python,
+ * for the code snippets on the pages.
+ */
+export function stringLiteral(value: string): string {
+  return JSON.stringify(value)
+}
