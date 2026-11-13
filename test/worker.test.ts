@@ -707,16 +707,18 @@ describe("download", () => {
     )
   })
 
-  it("refuses to serve an expired key, and leaves deleting it to the bucket rule", async () => {
-    const expired = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
-    await bucket().put(expired, "stale")
+  it("serves a file past the expiry in its key, for as long as it is in the bucket", async () => {
+    // Links made since 13 Nov 2026 with the random part first and a 24 hour expiry.
+    const past = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
+    await bucket().put(past, "still here")
 
     const response = await call(
-      new Request(`https://transfr.test/${expired}`, { headers: { "user-agent": CURL_UA } }),
+      new Request(`https://transfr.test/${past}`, { headers: { "user-agent": CURL_UA } }),
     )
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("still here")
     // The worker never deletes anything.
-    expect(await bucket().head(expired)).not.toBeNull()
+    expect(await bucket().head(past)).not.toBeNull()
   })
 
   it("still serves a link made by an earlier version until it expires", async () => {
