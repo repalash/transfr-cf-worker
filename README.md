@@ -97,7 +97,8 @@ the object's own SQLite database and an alarm deletes them when the stream
 expires. The full behaviour (offsets, waiting, following, limits, error codes)
 is in the guide at `/llms.txt`.
 
-Sending (uploads, pipe sends, stream writes) is limited per client address with
+Sending is limited per client address (20 uploads, pipe sends and new streams
+a minute; 120 writes a minute to existing streams) with
 Cloudflare's [rate limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 It is counted per Cloudflare location, so it is a brake on abuse rather than an
 exact quota.
@@ -215,9 +216,10 @@ Variables in `wrangler.toml` under `[vars]`:
 An invalid value is a startup error rather than a silently ignored limit.
 
 Pipes and streams need the `CHANNELS` Durable Object binding and its migration,
-and the rate limit needs the `UPLOAD_LIMITER` binding; both are in
-`wrangler.toml`. Without `CHANNELS` the two modes answer 501 and stored files
-work as before; without `UPLOAD_LIMITER` nothing is rate limited.
+and the rate limits need the `UPLOAD_LIMITER` and `STREAM_WRITE_LIMITER`
+bindings; all are in `wrangler.toml`. Without `CHANNELS` the two modes answer
+501 and stored files work as before; without a limiter binding, what it covers
+is not rate limited.
 
 R2 has to know an object's size before it stores it. An upload with a
 `Content-Length` (browsers, `curl --upload-file`, `curl --data-binary @file`)

@@ -153,8 +153,8 @@ Read, with the read link:
 - With "Accept: application/json", create replies {"url", "write_url", "name",
   "content_type", "length", "state", "expires_at"} and a write replies
   {"appended", "length", "state"}.
-- Many small writes count against the rate limit (see Limits). For a steady
-  flow of data, use one long upload.
+- Writes are rate limited (see Limits): about two a second from one address.
+  For a faster flow of data, use one long upload.
 
 ## Encrypt (optional)
 
@@ -178,9 +178,10 @@ browser, on the page its link opens.
 - File names: up to 256 characters, and may contain "/". Not allowed: control
   characters, and empty, "." or ".." path segments. The name becomes part of
   the link. A stream's name cannot contain "/".
-- Sending: about 20 uploads, pipe sends, new streams and stream writes a minute,
-  counted together, from one address. More than that gets 429 rate_limited; wait a minute. Reading is not
-  limited.
+- Sending: about 20 uploads, pipe sends and new streams a minute, counted
+  together, from one address, and about 120 writes a minute to existing
+  streams. More than that gets 429 rate_limited; wait a minute. Reading is
+  not limited.
 
 ## Errors
 

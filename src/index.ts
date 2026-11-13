@@ -34,9 +34,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const config = loadConfig(env)
   const url = new URL(request.url)
 
-  // Anything that sends data counts against the client's rate limit.
+  // Anything that sends data counts against one of the client's rate limits.
   if (request.method === "PUT" || request.method === "POST") {
-    const limited = await rateLimited(request, env)
+    const limited = await rateLimited(request, url, env)
     if (limited) return limited
   }
 
@@ -61,15 +61,25 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   }
 }
 
-/** A 429 if this client has sent too much too quickly, otherwise null. */
-async function rateLimited(request: Request, env: Env): Promise<Response | null> {
+/** A write to a stream that already exists: `/stream/<id>/<name>`. */
+const STREAM_WRITE_PATH = /^\/+stream\/[0-9a-f]{12}\//
+
+/**
+ * A 429 if this client has sent too much too quickly, otherwise null. Writes
+ * to an existing stream have their own, higher, limit: a script that logs a
+ * line at a time sends far more requests than anyone uploading files.
+ */
+async function rateLimited(request: Request, url: URL, env: Env): Promise<Response | null> {
   // The client's address is set by Cloudflare on every request. Without it
   // (local development, tests) there is no one to count against.
   const address = request.headers.get("cf-connecting-ip")
-  if (!env.UPLOAD_LIMITER || !address) return null
-  const { success } = await env.UPLOAD_LIMITER.limit({ key: address })
+  const isStreamWrite = STREAM_WRITE_PATH.test(url.pathname)
+  const limiter = isStreamWrite ? env.STREAM_WRITE_LIMITER : env.UPLOAD_LIMITER
+  if (!limiter || !address) return null
+  const { success } = await limiter.limit({ key: address })
   if (success) return null
-  return errorResponse("rate_limited", "Too many uploads from your address. Wait a minute and try again.", 429, {
+  const what = isStreamWrite ? "writes to streams" : "uploads"
+  return errorResponse("rate_limited", `Too many ${what} from your address. Wait a minute and try again.`, 429, {
     "Retry-After": "60",
   })
 }

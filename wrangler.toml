@@ -56,12 +56,19 @@ class_name = "Channel"
 tag = "v1"
 new_sqlite_classes = ["Channel"]
 
-# Uploads, pipe sends and stream writes a client may start per minute. Counted
+# Uploads, pipe sends and new streams a client may start per minute. Counted
 # per Cloudflare location, so it is a brake on abuse, not an exact quota.
 [[ratelimits]]
 name = "UPLOAD_LIMITER"
 namespace_id = "481516"
 simple = { limit = 20, period = 60 }
+
+# Writes to an existing stream: a script that logs a line at a time sends many
+# more requests than someone uploading files.
+[[ratelimits]]
+name = "STREAM_WRITE_LIMITER"
+namespace_id = "481517"
+simple = { limit = 120, period = 60 }
 
 [observability]
 enabled = true

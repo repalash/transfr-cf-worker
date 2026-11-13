@@ -38,8 +38,10 @@ export interface Env {
   STREAM_FOLLOW_SECONDS?: string | number
   /** The Durable Object that connects pipes and stores streams. Unbound, both are switched off. */
   CHANNELS?: DurableObjectNamespace
-  /** Rate limiter for uploads, keyed by client address. Unbound, uploads are not limited. */
+  /** Rate limiter for uploads, pipe sends and new streams, keyed by client address. Unbound, they are not limited. */
   UPLOAD_LIMITER?: RateLimit
+  /** Rate limiter for writes to an existing stream, which come more often than uploads. Unbound, not limited. */
+  STREAM_WRITE_LIMITER?: RateLimit
   /** R2 bucket bindings (and anything else Cloudflare injects). */
   [binding: string]: unknown
 }

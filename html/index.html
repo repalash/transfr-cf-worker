@@ -204,7 +204,7 @@ curl -N "&lt;read link&gt;?follow"
       like <code>curl -T -</code>, and for form uploads, like <code>curl -F</code>).</li>
     <li>A stream holds up to <code>{{STREAM_MAX_LABEL}}</code> and is deleted <code>{{STREAM_IDLE_LABEL}}</code>
       after its last write. A pipe stores nothing.</li>
-    <li>Sending is limited to about 20 uploads a minute from one address.</li>
+    <li>Sending is limited to about 20 uploads a minute from one address (120 writes a minute to a stream).</li>
     <li>Scripts and AI agents: the same instructions as plain text are at <a href="/llms.txt">/llms.txt</a>,
       and <code>curl {{ORIGIN}}</code> prints them. Send <code>Accept: application/json</code> with an upload to
       get the link, size and expiry as JSON.</li>

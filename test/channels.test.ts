@@ -542,6 +542,35 @@ describe("limits on sending", () => {
     expect(seen).toHaveLength(2)
   })
 
+  it("counts writes to an existing stream against their own, separate limit", async () => {
+    const { write } = await createStream()
+    const path = write.replace(ORIGIN, "")
+    const uploads: string[] = []
+    const writes: string[] = []
+    const limiters = (uploadsAllowed: boolean, writesAllowed: boolean) => ({
+      ...limiter(uploadsAllowed, uploads),
+      STREAM_WRITE_LIMITER: {
+        limit: async ({ key }: { key: string }) => {
+          writes.push(key)
+          return { success: writesAllowed }
+        },
+      },
+    })
+
+    // Over the upload limit, a stream write still goes through...
+    expect((await put(path, "line\n", from("203.0.113.9"), limiters(false, true))).status).toBe(200)
+    expect(uploads).toHaveLength(0)
+    expect(writes).toEqual(["203.0.113.9"])
+
+    // ...and over the write limit it does not, while uploads and new streams do.
+    const refused = await put(path, "line\n", from("203.0.113.9"), limiters(true, false))
+    expect(refused.status).toBe(429)
+    expect(await refused.text()).toContain("Too many writes to streams")
+    expect((await put("/file.txt", "data", from("203.0.113.9"), limiters(true, false))).status).toBe(200)
+    expect((await put("/stream/new.log", null, from("203.0.113.9"), limiters(true, false))).status).toBe(200)
+    expect(uploads).toHaveLength(2)
+  })
+
   it("does not limit when there is no client address or no limiter", async () => {
     expect((await put("/a.txt", "data", {}, limiter(false))).status).toBe(200)
     expect((await put("/b.txt", "data", from("203.0.113.9"), { UPLOAD_LIMITER: undefined })).status).toBe(200)
