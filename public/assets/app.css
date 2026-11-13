@@ -293,6 +293,12 @@ dialog h3 {
   font-size: 0.9rem;
 }
 
+/* The links are blocks, one per line; keep each only as wide as its text so
+   the focus ring fits the words. */
+a.main-link {
+  width: fit-content;
+}
+
 [hidden] {
   display: none !important;
 }

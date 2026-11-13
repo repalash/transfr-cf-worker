@@ -175,6 +175,8 @@ document.addEventListener("DOMContentLoaded", () => {
     syncDialog();
     if (dialogEncrypt.checked) dialogPassphrase.focus();
   });
+  // A complaint about the passphrase goes away once it is being changed.
+  dialogPassphrase.addEventListener("input", () => { dialogError.hidden = true; });
 
   document.getElementById("send-form").addEventListener("submit", (e) => {
     e.preventDefault();
