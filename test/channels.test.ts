@@ -126,6 +126,25 @@ describe("pipe", () => {
     expect(await (await get(path)).text()).toBe("first")
     await first
 
+    // The name stays taken while a transfer is under way, on both sides.
+    const live = pipeName()
+    let push!: ReadableStreamDefaultController<Uint8Array>
+    const body = new ReadableStream<Uint8Array>({ start: (c) => { push = c } })
+    push.enqueue(new TextEncoder().encode("part 1\n"))
+    const sending = put(live, body)
+    const receiving = await get(live)
+    const reader = receiving.body!.getReader()
+    await reader.read()
+    expect((await put(live, "intruder")).headers.get("x-error-code")).toBe("pipe_busy")
+    expect((await get(live)).headers.get("x-error-code")).toBe("pipe_busy")
+    push.close()
+    while (!(await reader.read()).done) {}
+    expect((await sending).status).toBe(200)
+    // Free again once it has ended.
+    const again = put(live, "next")
+    expect(await (await get(live)).text()).toBe("next")
+    await again
+
     const other = pipeName()
     const waiting = get(other, {}, { PIPE_WAIT_SECONDS: "1" })
     await sleep(20)

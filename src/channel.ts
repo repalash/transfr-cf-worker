@@ -40,10 +40,12 @@ export class Channel extends DurableObject<Env> {
 
   private sender: Sender | null = null
   private receiver: Receiver | null = null
+  /** A transfer is under way: the name stays taken until it ends. */
+  private transferring = false
 
   /** Holds the sender's request until a receiver is there, then streams the body across. */
   private pipeSend(request: Request, url: URL): Promise<Response> | Response {
-    if (this.sender) {
+    if (this.sender || this.transferring) {
       return errorResponse("pipe_busy", "Someone is already sending on this pipe. Pick another name.", 409)
     }
     const body = request.body
@@ -86,7 +88,7 @@ export class Channel extends DurableObject<Env> {
 
   /** Holds the receiver's request until a sender is there. */
   private pipeReceive(request: Request, url: URL): Promise<Response> | Response {
-    if (this.receiver) {
+    if (this.receiver || this.transferring) {
       return errorResponse("pipe_busy", "Someone is already receiving on this pipe. Pick another name.", 409)
     }
     const wait = number(url, "wait")
@@ -150,9 +152,13 @@ export class Channel extends DurableObject<Env> {
     })
     if (sender.length !== null) headers.set("Content-Length", String(sender.length))
     receiver.resolve(new Response(readable, { headers }))
+    this.transferring = true
     sender.body
       .pipeThrough(counter)
       .pipeTo(writable)
+      .finally(() => {
+        this.transferring = false
+      })
       .then(
         () => sender.resolve(textResponse(`Sent ${sent} bytes\n`)),
         () =>
