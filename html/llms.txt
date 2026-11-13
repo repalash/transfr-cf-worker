@@ -110,6 +110,7 @@ follow it live. Create it first; the reply has two links:
     write: {{ORIGIN}}/stream/1a2b3c4d5e6f/build.log?key=5f2c...
 
 Give out the read link. Keep the write link: whoever has it can add data.
+Create with an empty request; data goes to the write link afterwards.
 
 Write, with the write link:
 
@@ -189,7 +190,8 @@ the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status"
 
 - 400  no_filename, empty_body, invalid_filename, filename_too_long,
        length_mismatch (the body was not as long as its Content-Length),
-       invalid_form, no_file_in_form, invalid_offset
+       invalid_form, no_file_in_form, invalid_offset, body_not_allowed (data
+       sent while creating a stream), upload_interrupted
 - 403  write_key_required, wrong_write_key: writing to a stream needs its write link
 - 404  not_found: the link is wrong, or the file or stream has expired
 - 405  method_not_allowed: only GET, HEAD, PUT, POST and OPTIONS are supported

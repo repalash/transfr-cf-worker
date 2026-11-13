@@ -163,6 +163,7 @@ describe("pipe", () => {
     const noName = await put("/pipe/", "data")
     expect(noName.status).toBe(400)
     expect(noName.headers.get("x-error-code")).toBe("no_filename")
+    expect(await noName.text()).toContain("like https://transfr.test/pipe/<name>")
     expect((await put("/pipe", "data")).status).toBe(400)
 
     const empty = await put(pipeName(), null)
@@ -315,6 +316,26 @@ describe("stream", () => {
     )
     const after = Date.parse((await get(read)).headers.get("x-expires-at") ?? "")
     expect(after - before).toBeGreaterThanOrEqual(1_000)
+  })
+
+  it("refuses data sent along with the request that creates a stream", async () => {
+    const response = await call(
+      new Request(`${ORIGIN}/stream/build.log`, { method: "POST", body: "first line", headers: { "content-length": "10" } }),
+    )
+    expect(response.status).toBe(400)
+    expect(response.headers.get("x-error-code")).toBe("body_not_allowed")
+    expect(await response.text()).toContain("send data to the write link")
+
+    const noName = await call(new Request(`${ORIGIN}/stream/`, { method: "POST" }))
+    expect(noName.headers.get("x-error-code")).toBe("no_filename")
+    expect(await noName.text()).toContain("like https://transfr.test/stream/<name>")
+  })
+
+  it("keeps the error code readable to browser scripts on every stream error", async () => {
+    const { read } = await createStream()
+    const response = await get(`${read}?from=999`)
+    expect(response.status).toBe(416)
+    expect(response.headers.get("access-control-expose-headers")).toContain("X-Error-Code")
   })
 
   it("says why a stream name with a slash is refused", async () => {

@@ -53,7 +53,7 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
   }
 
   if (kind === "pipe") {
-    const invalid = validateFilename(rest, url)
+    const invalid = validateFilename(rest, url, `${url.origin}/pipe/<name>`)
     if (invalid) return invalid
     if (request.method === "HEAD") {
       return errorResponse("method_not_allowed", "A pipe has nothing to look at: GET it to receive", 405, {
@@ -76,8 +76,17 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
         404,
       )
     }
-    const invalid = validateFilename(first, url)
+    const invalid = validateFilename(first, url, `${url.origin}/stream/<name>`)
     if (invalid) return invalid
+    // A stream starts empty. Data sent along with the create request would
+    // otherwise vanish without a word.
+    if (declared !== null && declared > 0) {
+      return errorResponse(
+        "body_not_allowed",
+        "A new stream starts empty: create it with an empty POST, then send data to the write link it replies with",
+        400,
+      )
+    }
     const id = randomHex(6)
     return await forward(`stream:${id}`, "create", {
       name: decodeFilename(first),

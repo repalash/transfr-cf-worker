@@ -234,7 +234,15 @@ export class Channel extends DurableObject<Env> {
 
       let next = reader.read()
       for (;;) {
-        const result = flushDue ? await Promise.race([next, flushDue]) : await next
+        let result: ReadableStreamReadResult<Uint8Array> | null
+        try {
+          result = flushDue ? await Promise.race([next, flushDue]) : await next
+        } catch {
+          // The writer's connection broke. What had arrived is still stored;
+          // there is no one left to reply to.
+          if (gatheredBytes > 0) flush()
+          return errorResponse("upload_interrupted", `The upload was cut off. ${appended} bytes were added.`, 400)
+        }
         let problem: WriteProblem | null = null
         if (result === null) {
           // Nothing more arrived for a while: store what there is.
@@ -603,7 +611,7 @@ function streamHeaders(meta: StreamMeta, expiresAt: number): Record<string, stri
     "X-Stream-State": meta.closed ? "closed" : "open",
     "X-Expires-At": new Date(expiresAt).toISOString(),
     "Access-Control-Expose-Headers":
-      "Content-Length, Content-Range, Content-Type, Content-Disposition, X-Stream-Length, X-Stream-State, X-Expires-At",
+      "Content-Length, Content-Range, Content-Type, Content-Disposition, X-Stream-Length, X-Stream-State, X-Expires-At, X-Error-Code",
   }
 }
 
