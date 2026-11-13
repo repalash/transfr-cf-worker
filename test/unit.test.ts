@@ -10,7 +10,8 @@ describe("keys", () => {
     const now = 1_700_000_000_000
     const { key, expiresAt } = createObjectKey("file.txt", 86_400, now)
     expect(expiresAt).toBe(1_700_000_000 + 86_400)
-    expect(key).toMatch(/^[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
+    // The layout links have always had on the live site: expiry, then 1-2 random digits.
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{1,2}\/file\.txt$/)
     expect(parseExpiry(key)).toBe(expiresAt)
   })
 
@@ -31,17 +32,17 @@ describe("keys", () => {
     expect(parseExpiry("abc-def/file.txt")).toBeNull()
   })
 
-  it("does not repeat keys", () => {
-    const keys = new Set(Array.from({ length: 200 }, () => createObjectKey("f", 60).key))
-    expect(keys.size).toBe(200)
+  it("varies the random digits", () => {
+    const keys = new Set(Array.from({ length: 200 }, () => createObjectKey("f", 60, 1_700_000_000_000).key))
+    expect(keys.size).toBeGreaterThan(50)
   })
 
-  it("treats a key as expired once its timestamp has passed", () => {
+  it("never expires a new key itself, as the live site never did; the bucket rule removes files", () => {
     const now = 1_700_000_000_000
     const { key } = createObjectKey("file.txt", 60, now)
-    expect(isExpired(key, now)).toBe(false)
-    expect(isExpired(key, now + 59_000)).toBe(false)
-    expect(isExpired(key, now + 61_000)).toBe(true)
+    expect(isExpired(key, now + 61_000)).toBe(false)
+    // Keys with the random part first still expire on time.
+    expect(isExpired(`abcdef012345-${(1_700_000_060).toString(16)}/f`, now + 61_000)).toBe(true)
   })
 
   it("leaves keys without an expiry prefix alone", () => {
