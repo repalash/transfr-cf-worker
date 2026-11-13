@@ -36,9 +36,11 @@ the key, so the worker stops serving a file on time even though R2 lifecycle
 rules only delete once a day; the 6 random bytes are the only secret protecting
 a file, so treat the URL like a password.
 
-Send `Accept: application/json` with an upload to get JSON instead of the bare
-link (`url`, `raw_url`, `name`, `size`, `content_type`, `expires_at`,
-`expires_in_seconds`); errors then come back as `{"error": "...", "status": 400}`.
+Send `Accept: application/json` (and no other type) with an upload to get JSON
+instead of the bare link (`url`, `raw_url`, `name`, `size`, `content_type`, `expires_at`,
+`md5`, `expires_in_seconds`); errors then come back as
+`{"error": "...", "code": "...", "status": 400}`. Every error also carries its
+code in `X-Error-Code`, and uploads and downloads carry `X-Expires-At`.
 
 When the client sends no content type, or a placeholder (`curl --upload-file`
 sends none, `curl --data-binary` sends the form type), the type is taken from

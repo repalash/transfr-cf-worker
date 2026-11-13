@@ -211,6 +211,18 @@ describe("scripts and agents", () => {
     expect(Date.parse(body.expires_at as string)).toBeGreaterThan(Date.now() + 86_000_000)
   })
 
+  it("keeps the plain replies for libraries that list JSON among other types", async () => {
+    // What axios and Angular send on every request, without being asked to.
+    const headers = { accept: "application/json, text/plain, */*", "user-agent": "axios/1.7.2" }
+    const response = await call(new Request("https://transfr.test/a.txt", { method: "PUT", body: "data", headers }))
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    expect(await response.text()).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/a\.txt\n$/)
+
+    const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers }))
+    expect(missing.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    expect(missing.headers.get("x-error-code")).toBe("not_found")
+  })
+
   it("answers errors with JSON when asked", async () => {
     const json = { accept: "application/json" }
     const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: json }))

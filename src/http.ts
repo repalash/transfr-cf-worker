@@ -86,9 +86,18 @@ export function isNavigation(request: Request): boolean {
   return accepts(request, "text/html")
 }
 
-/** True if the client asked for JSON rather than the plain text replies. */
+/**
+ * True if the client asked for JSON and nothing else. Libraries such as axios
+ * list JSON, plain text and "anything" on every request without the caller
+ * asking for it; they keep getting the plain text replies they always got.
+ */
 export function wantsJson(request: Request): boolean {
-  return accepts(request, "application/json") && !accepts(request, "text/html")
+  return (
+    accepts(request, "application/json") &&
+    !accepts(request, "text/html") &&
+    !accepts(request, "text/plain") &&
+    !accepts(request, "*/*")
+  )
 }
 
 /** Command line tools and HTTP libraries, by the start of their User-Agent. */
