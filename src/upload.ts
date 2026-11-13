@@ -163,7 +163,12 @@ async function store(
   url: URL,
   config: Config,
 ): Promise<Response> {
-  const { key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds)
+  // Two uploads of the same name in the same second can draw the same key;
+  // draw again rather than overwrite someone else's file.
+  let { key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds)
+  for (let attempt = 0; attempt < 16 && (await config.bucket.head(key)) !== null; attempt++) {
+    ;({ key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds))
+  }
   const name = decodeFilename(filename)
   const contentType = contentTypeFor(sentContentType, name)
 

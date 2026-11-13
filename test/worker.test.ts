@@ -212,7 +212,7 @@ describe("scripts and agents", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
     const body = (await response.json()) as Record<string, unknown>
-    expect(body.url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/report%20v2\.json$/)
+    expect(body.url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/report%20v2\.json$/)
     expect(body).toMatchObject({
       raw_url: `${body.url}?raw=1`,
       name: "report v2.json",
@@ -228,7 +228,7 @@ describe("scripts and agents", () => {
     const headers = { accept: "application/json, text/plain, */*", "user-agent": "axios/1.7.2" }
     const response = await call(new Request("https://transfr.test/a.txt", { method: "PUT", body: "data", headers }))
     expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")
-    expect(await response.text()).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/a\.txt\n$/)
+    expect(await response.text()).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/a\.txt\n$/)
 
     const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers }))
     expect(missing.headers.get("content-type")).toBe("text/plain; charset=utf-8")
@@ -376,7 +376,7 @@ describe("upload", () => {
   it("stores the file and returns its URL", async () => {
     const { response, url } = await upload("/file.txt", "Hello, world!", { "content-type": "text/plain" })
     expect(response.status).toBe(200)
-    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
+    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/file\.txt$/)
   })
 
   it("makes the file readable as soon as the URL is returned", async () => {
@@ -716,16 +716,18 @@ describe("download", () => {
     )
   })
 
-  it("refuses to serve an expired key, and leaves deleting it to the bucket rule", async () => {
-    const expired = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
-    await bucket().put(expired, "stale")
+  it("serves a file past the expiry in its key, for as long as it is in the bucket", async () => {
+    // Links made since 13 Nov 2026 with the random part first and a 24 hour expiry.
+    const past = `abcdef012345-${(Math.floor(Date.now() / 1000) - 10).toString(16)}/old.txt`
+    await bucket().put(past, "still here")
 
     const response = await call(
-      new Request(`https://transfr.test/${expired}`, { headers: { "user-agent": CURL_UA } }),
+      new Request(`https://transfr.test/${past}`, { headers: { "user-agent": CURL_UA } }),
     )
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("still here")
     // The worker never deletes anything.
-    expect(await bucket().head(expired)).not.toBeNull()
+    expect(await bucket().head(past)).not.toBeNull()
   })
 
   it("still serves a link made by an earlier version until it expires", async () => {

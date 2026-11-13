@@ -17,8 +17,6 @@
  * (now). So the part with 8 digits is the expiry, whichever side it is on.
  */
 
-/** Bytes of randomness in a key. The key is the only secret protecting a file. */
-const RANDOM_BYTES = 6
 
 const KEY_PREFIX_RE = /^([0-9a-f]{1,32})-([0-9a-f]{1,12})(?:\/|$)/
 
@@ -28,9 +26,14 @@ export interface ObjectKey {
   expiresAt: number
 }
 
+/**
+ * A new key in the layout links have always had on the live site:
+ * `<expiry hex>-<1-2 random hex>/<name>`, e.g. `6af77f4d-a2/model.glb`.
+ */
 export function createObjectKey(filename: string, ttlSeconds: number, now: number = Date.now()): ObjectKey {
   const expiresAt = Math.floor(now / 1000) + ttlSeconds
-  return { key: `${randomHex(RANDOM_BYTES)}-${expiresAt.toString(16)}/${filename}`, expiresAt }
+  const random = crypto.getRandomValues(new Uint8Array(1))[0] ?? 0
+  return { key: `${expiresAt.toString(16)}-${random.toString(16)}/${filename}`, expiresAt }
 }
 
 export function randomHex(bytes: number): string {

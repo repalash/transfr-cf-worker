@@ -75,7 +75,7 @@
   <pre class=" language-sh"><code class="prism  language-sh">curl --upload-file ./file.txt {{ORIGIN}}
 </code></pre>
   <p>Once the file is uploaded, the endpoint will return the uploaded file URL.</p>
-  <pre><code>{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt
+  <pre><code>{{ORIGIN}}/68d0f3a2-3f/file.txt
 </code></pre>
   <h4 id="with-customfilename">With a custom filename</h4>
   <pre class=" language-sh"><code class="prism  language-sh">curl --upload-file ./file.txt {{ORIGIN}}/my-file.txt
@@ -87,7 +87,7 @@
   <p>This will prompt for a passphrase before starting the upload, that can then be used to decrypt the file.</p>
   <p>Once the file is uploaded, the endpoint will return the uploaded file URL which can then be downloaded and
     decrypted with gpg, or in the browser if the extension is .pgp</p>
-  <pre><code>curl -L {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt.pgp | gpg --pinentry-mode loopback -d -o decrypted.txt
+  <pre><code>curl -L {{ORIGIN}}/68d0f3a2-3f/file.txt.pgp | gpg --pinentry-mode loopback -d -o decrypted.txt
 </code></pre>
   <h3 id="with-javascripttypescript">With <code>javascript</code>/<code>typescript</code></h3>
   <pre class=" language-javascript"><code class="prism  language-javascript"><span
@@ -122,12 +122,12 @@ response <span class="token operator">=</span> requests<span class="token punctu
   <p>The file can simply be downloaded with the link returned from the endpoint. The link can be opened in a web browser
     to download the file, alternatively:</p>
   <h3 id="with-curl-1">With <code>curl</code></h3>
-  <pre><code>curl -L {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt &gt; file.txt
+  <pre><code>curl -L {{ORIGIN}}/68d0f3a2-3f/file.txt &gt; file.txt
 </code></pre>
   <h3 id="with-javascripttypescript-1">With <code>javascript</code>/<code>typescript</code></h3>
   <pre class=" language-javascript"><code class="prism  language-javascript"><span
     class="token function">fetch</span><span class="token punctuation">(</span><span
-    class="token string">'{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt'</span><span
+    class="token string">'{{ORIGIN}}/68d0f3a2-3f/file.txt'</span><span
     class="token punctuation">)</span><span class="token punctuation">;</span>
 </code></pre>
   <h3 id="with-python-1">With <code>python</code></h3>
@@ -135,7 +135,7 @@ response <span class="token operator">=</span> requests<span class="token punctu
 
 response <span class="token operator">=</span> requests<span class="token punctuation">.</span>get<span
       class="token punctuation">(</span><span
-      class="token string">'{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt'</span><span
+      class="token string">'{{ORIGIN}}/68d0f3a2-3f/file.txt'</span><span
       class="token punctuation">)</span>
 </code></pre>
   <h2 id="pipe">Pipe: send live, store nothing</h2>

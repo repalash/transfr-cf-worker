@@ -1,7 +1,7 @@
 import type { Config } from "./config"
 import { corsHeaders } from "./cors"
 import { errorResponse, htmlResponse, isNavigation, NO_INDEX, notFound } from "./http"
-import { decodeFilename, filenameFromKey, isExpired, parseExpiry } from "./keys"
+import { decodeFilename, filenameFromKey, parseExpiry } from "./keys"
 import { contentDisposition } from "./mime"
 import { formatDuration } from "./format"
 import { renderAccessPage } from "./pages"
@@ -33,10 +33,9 @@ export async function handleDownload(
   const site = siteResponse(request, url, config, key)
   if (site) return site
 
-  // The expiry is part of the key, so the file stops being served on time even
-  // if the R2 lifecycle rule (day granularity) has not removed it yet. The
-  // worker never deletes anything itself: removing files is left to that rule.
-  if (isExpired(key)) return missing(config, url)
+  // A file is served for as long as it is in the bucket, whatever expiry its
+  // key carries, as the live site always did: the bucket's lifecycle rule is
+  // what removes files. The worker never refuses or deletes one itself.
 
   if (!isHead && !url.searchParams.has("raw") && prefersAccessPage(request, url, config)) {
     return await accessPageResponse(key, url, config)

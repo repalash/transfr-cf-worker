@@ -1,7 +1,7 @@
 # transfr.one worker
 
 A Cloudflare Worker for dead-simple, temporary file transfer: `PUT` a file, get
-back a URL with an unguessable key, and the file is gone after 24 hours. Files
+back a URL, and the file is gone after 24 hours. Files
 are stored in [R2](https://developers.cloudflare.com/r2/) and can be encrypted
 end-to-end in the browser (OpenPGP) before they ever leave the machine.
 
@@ -28,9 +28,9 @@ Check it out: https://transfr.one
 
 ```sh
 curl --upload-file ./file.txt https://transfr.one/file.txt
-# https://transfr.one/3f1c9b27d4e0-68d0f3a2/file.txt
+# https://transfr.one/68d0f3a2-3f/file.txt
 
-curl -L https://transfr.one/3f1c9b27d4e0-68d0f3a2/file.txt > file.txt
+curl -L https://transfr.one/68d0f3a2-3f/file.txt > file.txt
 ```
 
 Encrypt before uploading to keep the contents private from the server:
@@ -39,10 +39,11 @@ Encrypt before uploading to keep the contents private from the server:
 gpg -c -o- file.txt | curl https://transfr.one/file.txt.pgp --data-binary @-
 ```
 
-Object keys are `<random-hex>-<expiry-hex>/<file name>`. The expiry is part of
-the key, so the worker stops serving a file on time even though R2 lifecycle
-rules only delete once a day; the 6 random bytes are the only secret protecting
-a file, so treat the URL like a password.
+Object keys are `<expiry-hex>-<random-hex>/<file name>`, the layout links have
+always had on the live site: the expiry time, then one or two random hex digits.
+Files are removed by the bucket's lifecycle rule; the worker never deletes
+anything. The random part is short, so a link can be guessed by someone who
+knows roughly when a file was uploaded.
 
 Send `Accept: application/json` with an upload to get JSON instead of the bare
 link (JSON has to be the preferred type: a header that lists it level with
