@@ -2,7 +2,7 @@ import type { Config } from "./config"
 import type { Env } from "./env"
 import { errorResponse } from "./http"
 import { decodeFilename, randomHex } from "./keys"
-import { validateFilename } from "./upload"
+import { parseContentLength, validateFilename } from "./upload"
 
 const STREAM_ID_RE = /^[0-9a-f]{12}$/
 
@@ -29,6 +29,11 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
   if (!channels) return errorResponse("not_available", "Pipes and streams are not switched on for this server", 501)
 
   const isWrite = request.method === "PUT" || request.method === "POST"
+  // One request may carry as much as one stored file, whatever it is for.
+  const declared = isWrite ? parseContentLength(request.headers.get("content-length")) : null
+  if (declared !== null && declared > config.maxFileSizeBytes) {
+    return errorResponse("too_large", `Invalid size: ${declared}, max size of one request = ${config.maxFileSizeBytes}`, 413)
+  }
   const forward = (name: string, action: string, params: Record<string, string | number>): Promise<Response> => {
     const internal = new URL(`https://channel/${kind}/${action}`)
     for (const [key, value] of Object.entries(params)) internal.searchParams.set(key, String(value))

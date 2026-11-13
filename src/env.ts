@@ -28,7 +28,7 @@ export interface Env {
   CANONICAL_ORIGIN?: string
   /** Seconds a pipe's sender or receiver waits for the other side. Default 300. */
   PIPE_WAIT_SECONDS?: string | number
-  /** Largest a stream may grow, in bytes. Default 1,000,000,000. */
+  /** Largest a stream may grow, in bytes. Default 1 GB (1,073,741,824). */
   STREAM_MAX_BYTES?: string | number
   /** Seconds after its last write that a stream is deleted. Default 86400. */
   STREAM_IDLE_TTL?: string | number

@@ -4,6 +4,12 @@ Temporary file transfer over plain HTTP. Upload a file with one request, get a
 link back, share the link. Files are deleted after {{TTL_LABEL}}. No account, no
 API key, no client to install.
 
+Three ways to send:
+
+- File: upload, then share the link. Stored for {{TTL_LABEL}}. (Upload, Download)
+- Pipe: sender and receiver connected live. Nothing is stored. (Pipe)
+- Stream: a stored file that keeps growing while others read it. (Stream)
+
 ## Upload
 
 PUT or POST the file's bytes to {{ORIGIN}}/<file name>. The reply is status 200
@@ -64,6 +70,67 @@ To get the bytes whatever the headers, add ?raw=1 to the link. That is the
 A GET or HEAD reply carries X-Expires-At (when the link stops working) and an
 ETag, which is the MD5 of the file in quotes.
 
+## Pipe
+
+Sends straight from one command to another. Nothing is stored, so there is
+nothing to delete and no link that outlives the transfer. Both sides use the
+same address, in either order, and each waits up to {{PIPE_WAIT_LABEL}} for the other.
+Make the name hard to guess: whoever connects first on it gets the data.
+
+    curl -T ./backup.tar {{ORIGIN}}/pipe/7f3a9c-backup          # sender
+    curl {{ORIGIN}}/pipe/7f3a9c-backup -o backup.tar             # receiver
+
+A live source works too; the receiver sees bytes as they are sent:
+
+    tail -f app.log | curl -T - {{ORIGIN}}/pipe/7f3a9c-logs
+    curl -N {{ORIGIN}}/pipe/7f3a9c-logs
+
+- The sender's reply comes when the transfer is over: "Sent 1234 bytes".
+- One sender and one receiver at a time on a name (409 pipe_busy). The name
+  can be used again once a transfer is over.
+- If the other side never connects: 408 pipe_timeout. If one side drops out
+  mid-way, the other gets an error (502 pipe_broken, or a download cut short).
+- One send carries up to {{MAX_FILE_SIZE_LABEL}}.
+
+## Stream
+
+A file that keeps growing. The writer adds to it for as long as it likes, and
+any number of readers can fetch what is there so far, only what is new, or
+follow it live. Create it first; the reply has two links:
+
+    curl -X POST {{ORIGIN}}/stream/build.log
+    read: {{ORIGIN}}/stream/1a2b3c4d5e6f/build.log
+    write: {{ORIGIN}}/stream/1a2b3c4d5e6f/build.log?key=5f2c...
+
+Give out the read link. Keep the write link: whoever has it can add data.
+
+Write, with the write link:
+
+    echo "step 1 done" | curl --data-binary @- "<write link>"    # add; repeat as needed
+    tail -f build.log | curl -T - "<write link>"                  # or one long upload
+    echo "finished" | curl --data-binary @- "<write link>&close"  # add and end the stream
+
+Read, with the read link:
+
+    curl "<read link>"                        # everything so far
+    curl "<read link>?from=5000"              # only the bytes from offset 5000 on
+    curl "<read link>?from=5000&wait=30"      # same, but wait up to 30 s if there is nothing new
+    curl -N "<read link>?follow"              # stay connected; ends when the stream is closed
+
+- Every read reply has X-Stream-Length, the stream's length so far, and
+  X-Stream-State, "open" or "closed". To poll: read with from=<the last
+  X-Stream-Length>&wait=30, and stop once the state is "closed" and nothing
+  new came back. wait is at most 60. "Range: bytes=5000-" works like from.
+- ?follow ends after {{STREAM_FOLLOW_LABEL}} at the latest; reconnect with from= to carry on.
+- A stream holds up to {{STREAM_MAX_LABEL}}, and one write carries up to {{MAX_FILE_SIZE_LABEL}}. Past
+  the limit a write gets 413 stream_full, after adding what still fit.
+- A stream is deleted {{STREAM_IDLE_LABEL}} after its last write, and {{STREAM_MAX_TTL_LABEL}} after it was
+  created at the latest. X-Expires-At on every reply says when.
+- With "Accept: application/json", create replies {"url", "write_url", ...}
+  and a write replies {"appended", "length", "state"}.
+- Many small writes count against the rate limit (see Limits). For a steady
+  flow of data, use one long upload.
+
 ## Encrypt (optional)
 
 The server never needs to see the contents. Encrypt before uploading:
@@ -84,7 +151,10 @@ browser, on the page its link opens.
   can download the file. Treat it like a password.
 - File names: up to 256 characters, and may contain "/". Not allowed: control
   characters, and empty, "." or ".." path segments. The name becomes part of
-  the link.
+  the link. A stream's name cannot contain "/".
+- Sending: about 20 uploads, pipe sends and stream writes a minute from one
+  address. More than that gets 429 rate_limited; wait a minute. Reading is not
+  limited.
 
 ## Errors
 
@@ -94,11 +164,16 @@ the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status"
 
 - 400  no_filename, empty_body, invalid_filename, filename_too_long,
        length_mismatch (the body was not as long as its Content-Length),
-       invalid_form, no_file_in_form
-- 404  not_found: the link is wrong or the file has expired
+       invalid_form, no_file_in_form, invalid_offset
+- 403  write_key_required, wrong_write_key: writing to a stream needs its write link
+- 404  not_found: the link is wrong, or the file or stream has expired
 - 405  method_not_allowed: only GET, HEAD, PUT, POST and OPTIONS are supported
-- 413  too_large: the file is larger than the limit
+- 408  pipe_timeout: the other side of the pipe never connected
+- 409  pipe_busy, stream_closed
+- 413  too_large: the file or request is larger than the limit; stream_full
 - 416  range_not_satisfiable
+- 429  rate_limited
+- 502  pipe_broken: the other side of the pipe disconnected
 
 ## For AI agents
 

@@ -180,12 +180,31 @@ response <span class="token operator">=</span> requests<span class="token punctu
       class="token string">'{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/file.txt'</span><span
       class="token punctuation">)</span>
 </code></pre>
+  <h2 id="pipe">Pipe: send live, store nothing</h2>
+  <p>A sender and a receiver use the same address, in either order, and the data goes straight from one to the
+    other. Nothing is stored. Make the name hard to guess: whoever connects first on it gets the data.</p>
+  <pre><code>curl -T ./backup.tar {{ORIGIN}}/pipe/7f3a9c-backup
+curl {{ORIGIN}}/pipe/7f3a9c-backup -o backup.tar
+</code></pre>
+  <h2 id="stream">Stream: a file that keeps growing</h2>
+  <p>Create a stream to get a read link to share and a write link to keep. Write to it for as long as you like;
+    readers get what is there so far, or follow it live.</p>
+  <pre><code>curl -X POST {{ORIGIN}}/stream/build.log
+tail -f build.log | curl -T - "&lt;write link&gt;"
+curl -N "&lt;read link&gt;?follow"
+</code></pre>
+  <p>Readers can also ask for only what is new (<code>?from=</code>) or wait for it (<code>?wait=</code>), and the
+    writer ends the stream with <code>&amp;close</code>. The details are in the <a href="/llms.txt">plain text
+    guide</a>.</p>
   <h2 id="notes">Notes</h2>
   <ul>
     <li>Files are automatically deleted after <code>{{TTL_LABEL}}</code>.</li>
     <li>Max file upload size is <code>{{MAX_FILE_SIZE_LABEL}}</code>
       (<code>{{MAX_BUFFERED_FILE_SIZE_LABEL}}</code> for a streamed upload without a <code>Content-Length</code>,
       like <code>curl -T -</code>, and for form uploads, like <code>curl -F</code>).</li>
+    <li>A stream holds up to <code>{{STREAM_MAX_LABEL}}</code> and is deleted <code>{{STREAM_IDLE_LABEL}}</code>
+      after its last write. A pipe stores nothing.</li>
+    <li>Sending is limited to about 20 uploads a minute from one address.</li>
     <li>Scripts and AI agents: the same instructions as plain text are at <a href="/llms.txt">/llms.txt</a>,
       and <code>curl {{ORIGIN}}</code> prints them. Send <code>Accept: application/json</code> with an upload to
       get the link, size and expiry as JSON.</li>

@@ -491,6 +491,36 @@ describe("limits on sending", () => {
   })
 })
 
+describe("documentation and limits shared with files", () => {
+  it("refuses a pipe send or stream write larger than one stored file may be", async () => {
+    const small = { R2_MAX_FILE_SIZE_BYTES: "10" }
+    const { write } = await createStream("limited.log", small)
+    for (const path of ["/pipe/too-big", write.replace(ORIGIN, "")]) {
+      const response = await put(path, "x".repeat(11), { "content-length": "11" }, small)
+      expect(response.status, path).toBe(413)
+      expect(response.headers.get("x-error-code")).toBe("too_large")
+    }
+  })
+
+  it("explains pipes and streams in the text guide, with the configured limits", async () => {
+    const guide = await (await get("/llms.txt")).text()
+    expect(guide).not.toContain("{{")
+    expect(guide).toContain("curl -T ./backup.tar https://transfr.test/pipe/7f3a9c-backup")
+    expect(guide).toContain("each waits up to 5 minutes for the other")
+    expect(guide).toContain("curl -X POST https://transfr.test/stream/build.log")
+    expect(guide).toContain("A stream holds up to 1.0 GB, and one write carries up to 95 MB")
+    expect(guide).toContain("deleted 24 hours after its last write, and 7 days after it was")
+    expect(guide).toContain("?follow ends after 1 hour at the latest")
+  })
+
+  it("mentions both on the landing page", async () => {
+    const html = await (await get("/", { accept: "text/html" })).text()
+    expect(html).not.toContain("{{")
+    expect(html).toContain("curl -T ./backup.tar https://transfr.test/pipe/7f3a9c-backup")
+    expect(html).toContain("A stream holds up to <code>1.0 GB</code> and is deleted <code>24 hours</code>")
+  })
+})
+
 describe("without the Durable Object binding", () => {
   it("says pipes and streams are switched off, and still stores files", async () => {
     const off = { CHANNELS: undefined }

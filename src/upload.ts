@@ -193,7 +193,7 @@ function emptyBody(url: URL): Response {
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */
-function parseContentLength(header: string | null): number | null {
+export function parseContentLength(header: string | null): number | null {
   if (header === null || !/^\d+$/.test(header.trim())) return null
   const length = Number(header.trim())
   return Number.isSafeInteger(length) ? length : null
