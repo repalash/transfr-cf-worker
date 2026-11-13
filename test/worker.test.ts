@@ -741,6 +741,27 @@ describe("download", () => {
   })
 })
 
+describe("links from the R2 worker before November 2026", () => {
+  it("are served, past their encoded expiry too, and never deleted", async () => {
+    // Expiry first, then one to four random digits; that worker did not
+    // enforce the expiry, so its links lived until the bucket rule removed them.
+    for (const offset of [3600, -3 * 86_400]) {
+      const key = `${(Math.floor(Date.now() / 1000) + offset).toString(16)}-a2/model.glb`
+      await bucket().put(key, "design")
+      for (const host of ["transfr.test", "bee.transfr.test"]) {
+        const response = await call(
+          new Request(`https://${host}/${key}`, { headers: { "user-agent": BROWSER_UA, accept: "*/*" } }),
+          { RAW_ONLY_HOSTS: "bee.transfr.test" },
+        )
+        expect(response.status, `${host} ${offset}`).toBe(200)
+        if (host.startsWith("bee")) expect(await response.text()).toBe("design")
+        else await response.body?.cancel()
+      }
+      expect(await bucket().head(key)).not.toBeNull()
+    }
+  })
+})
+
 describe("access page", () => {
   it("is served to a browser opening the link instead of the bytes", async () => {
     const { url } = await upload("/notes.txt", "Hello, world!", { "content-type": "text/plain" })
