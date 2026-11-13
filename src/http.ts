@@ -70,9 +70,14 @@ export function errorResponse(
   })
 }
 
-export function notFound(ttlLabel?: string): Response {
-  const lifetime = ttlLabel ? `Files are deleted ${ttlLabel} after upload.` : "Files are deleted a while after upload."
-  return errorResponse("not_found", `Not found: the link is wrong, or the file has expired. ${lifetime}`, 404)
+/** `origin`, when given, adds where to find the instructions: a wrong link is often a guess at the API. */
+export function notFound(ttlLabel: string, origin?: string): Response {
+  const usage = origin ? ` Usage: ${origin}/llms.txt` : ""
+  return errorResponse(
+    "not_found",
+    `Not found: the link is wrong, or the file has expired. Files are deleted ${ttlLabel} after upload.${usage}`,
+    404,
+  )
 }
 
 /**

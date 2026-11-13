@@ -1,4 +1,5 @@
 import type { Config } from "./config"
+import { ALLOWED_METHODS } from "./cors"
 import type { Env } from "./env"
 import { errorResponse } from "./http"
 import { decodeFilename, randomHex } from "./keys"
@@ -29,6 +30,15 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
   if (!channels) return errorResponse("not_available", "Pipes and streams are not switched on for this server", 501)
 
   const isWrite = request.method === "PUT" || request.method === "POST"
+  const isRead = request.method === "GET" || request.method === "HEAD"
+  if (!isWrite && !isRead) {
+    return errorResponse(
+      "method_not_allowed",
+      `Method not allowed: send PUT or POST to write and GET to read. Usage: ${url.origin}/llms.txt`,
+      405,
+      { Allow: ALLOWED_METHODS },
+    )
+  }
   // One request may carry as much as one stored file, whatever it is for.
   const declared = isWrite ? parseContentLength(request.headers.get("content-length")) : null
   if (declared !== null && declared > config.maxFileSizeBytes) {
@@ -80,6 +90,13 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
 
   // /stream/<id>/<name>: an existing one.
   if (segments.length !== 2 || !STREAM_ID_RE.test(first) || second === undefined || second === "") {
+    if (isWrite && !STREAM_ID_RE.test(first)) {
+      return errorResponse(
+        "invalid_filename",
+        `A stream's name cannot contain "/". To start a stream: POST ${url.origin}/stream/<name>`,
+        400,
+      )
+    }
     return errorResponse("not_found", "Not found: this is not a stream link", 404)
   }
   if (!isWrite) {

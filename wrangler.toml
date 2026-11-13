@@ -1,6 +1,11 @@
 name = "transfr-cf"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
+# So a pipe can notice when a side that was waiting has disconnected: the
+# first reports a client disconnect on the request, the second carries it
+# through the worker to the Durable Object. Best effort: local development
+# does not report disconnects, so this is not covered by a test.
+compatibility_flags = ["enable_request_signal", "request_signal_passthrough"]
 workers_dev = true
 # The live worker has Logpush on; a deploy without this would turn it off.
 logpush = true
@@ -55,7 +60,7 @@ new_sqlite_classes = ["Channel"]
 # per Cloudflare location, so it is a brake on abuse, not an exact quota.
 [[ratelimits]]
 name = "UPLOAD_LIMITER"
-namespace_id = "1001"
+namespace_id = "481516"
 simple = { limit = 20, period = 60 }
 
 [observability]

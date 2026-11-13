@@ -24,7 +24,7 @@ export class Channel extends DurableObject<Env> {
       case "/pipe/send":
         return await this.pipeSend(request, url)
       case "/pipe/receive":
-        return await this.pipeReceive(url)
+        return await this.pipeReceive(request, url)
       case "/stream/create":
         return this.streamCreate(request, url)
       case "/stream/write":
@@ -63,7 +63,7 @@ export class Channel extends DurableObject<Env> {
           ),
         )
       }, wait * 1000)
-      this.sender = {
+      const sender: Sender = {
         body,
         name,
         contentType: contentTypeFor(request.headers.get("content-type"), name) ?? "application/octet-stream",
@@ -71,12 +71,20 @@ export class Channel extends DurableObject<Env> {
         resolve,
         timer,
       }
+      this.sender = sender
+      // A sender that gives up while waiting must not be paired with a
+      // receiver that arrives later.
+      request.signal.addEventListener("abort", () => {
+        if (this.sender !== sender) return
+        clearTimeout(timer)
+        this.sender = null
+      })
       this.joinPipe()
     })
   }
 
   /** Holds the receiver's request until a sender is there. */
-  private pipeReceive(url: URL): Promise<Response> | Response {
+  private pipeReceive(request: Request, url: URL): Promise<Response> | Response {
     if (this.receiver) {
       return errorResponse("pipe_busy", "Someone is already receiving on this pipe. Pick another name.", 409)
     }
@@ -92,7 +100,15 @@ export class Channel extends DurableObject<Env> {
           ),
         )
       }, wait * 1000)
-      this.receiver = { resolve, timer }
+      const receiver: Receiver = { resolve, timer }
+      this.receiver = receiver
+      // Likewise a receiver that went away: the next sender should wait for
+      // a live one instead of sending into nothing.
+      request.signal.addEventListener("abort", () => {
+        if (this.receiver !== receiver) return
+        clearTimeout(timer)
+        this.receiver = null
+      })
       this.joinPipe()
     })
   }
@@ -249,7 +265,10 @@ export class Channel extends DurableObject<Env> {
     const after = this.liveMeta()
     if (!after) return streamNotFound()
     if (close) {
+      // Closing counts as a write, so the stream is kept for its full time
+      // after it ends, not after its last byte.
       after.closed = true
+      after.lastWrite = Date.now()
       this.saveMeta(after)
       this.wake()
     }

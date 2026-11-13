@@ -254,7 +254,7 @@ describe("scripts and agents", () => {
     expect(missing.status).toBe(404)
     expect(missing.headers.get("x-error-code")).toBe("not_found")
     expect(await missing.json()).toEqual({
-      error: "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload.",
+      error: "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload. Usage: https://transfr.test/llms.txt",
       code: "not_found",
       status: 404,
     })
@@ -703,7 +703,7 @@ describe("download", () => {
     )
     expect(response.status).toBe(404)
     expect(await response.text()).toBe(
-      "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload.\n",
+      "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload. Usage: https://transfr.test/llms.txt\n",
     )
   })
 

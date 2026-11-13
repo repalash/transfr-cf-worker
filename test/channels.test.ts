@@ -142,6 +142,23 @@ describe("pipe", () => {
     }
   })
 
+  it("answers methods other than GET, PUT and POST with 405, on pipes and streams", async () => {
+    const { read, write } = await createStream()
+    await append(write, "data")
+    for (const [method, url] of [
+      ["DELETE", read],
+      ["PATCH", read],
+      ["DELETE", write],
+      ["DELETE", `${ORIGIN}${pipeName()}`],
+    ]) {
+      const response = await call(new Request(url, { method }))
+      expect(response.status, `${method} ${url}`).toBe(405)
+      expect(response.headers.get("x-error-code")).toBe("method_not_allowed")
+      expect(response.headers.get("allow")).toBe("GET, HEAD, POST, PUT, OPTIONS")
+    }
+    expect(await (await get(read)).text()).toBe("data")
+  })
+
   it("refuses a pipe without a name, an empty send and HEAD", async () => {
     const noName = await put("/pipe/", "data")
     expect(noName.status).toBe(400)
@@ -286,6 +303,25 @@ describe("stream", () => {
     expect(late.status).toBe(409)
     expect(late.headers.get("x-error-code")).toBe("stream_closed")
     expect(await (await get(read)).text()).toBe("the end\n")
+  })
+
+  it("keeps a stream for its full time after it is closed, not after its last byte", async () => {
+    const { read, write } = await createStream()
+    await append(write, "data")
+    const before = Date.parse((await get(read)).headers.get("x-expires-at") ?? "")
+    await sleep(1_100)
+    expect(await (await append(write, null, { close: true })).text()).toBe(
+      "Added 0 bytes. The stream is 4 bytes and closed.\n",
+    )
+    const after = Date.parse((await get(read)).headers.get("x-expires-at") ?? "")
+    expect(after - before).toBeGreaterThanOrEqual(1_000)
+  })
+
+  it("says why a stream name with a slash is refused", async () => {
+    const response = await call(new Request(`${ORIGIN}/stream/logs/build.log`, { method: "POST" }))
+    expect(response.status).toBe(400)
+    expect(response.headers.get("x-error-code")).toBe("invalid_filename")
+    expect(await response.text()).toContain(`cannot contain "/"`)
   })
 
   it("returns exactly what was written, across large and tiny appends", async () => {
@@ -506,11 +542,11 @@ describe("documentation and limits shared with files", () => {
     const guide = await (await get("/llms.txt")).text()
     expect(guide).not.toContain("{{")
     expect(guide).toContain("curl -T ./backup.tar https://transfr.test/pipe/7f3a9c-backup")
-    expect(guide).toContain("each waits up to 5 minutes for the other")
+    expect(guide).toContain("it waits, for up to 5 minutes, until")
     expect(guide).toContain("curl -X POST https://transfr.test/stream/build.log")
     expect(guide).toContain("A stream holds up to 1.0 GB, and one write carries up to 95 MB")
     expect(guide).toContain("deleted 24 hours after its last write, and 7 days after it was")
-    expect(guide).toContain("?follow ends after 1 hour at the latest")
+    expect(guide).toContain("closed, and after 1 hour at the latest")
   })
 
   it("mentions both on the landing page", async () => {

@@ -37,7 +37,7 @@ export async function handleDownload(
   // if the R2 lifecycle rule (day granularity) has not removed it yet.
   if (isExpired(key)) {
     ctx.waitUntil(config.bucket.delete(key).catch((error) => console.error("expired object delete failed", error)))
-    return notFound(formatDuration(config.fileTtlSeconds))
+    return missing(config, url)
   }
 
   if (!isHead && !url.searchParams.has("raw") && prefersAccessPage(request, url, config)) {
@@ -46,7 +46,7 @@ export async function handleDownload(
 
   if (isHead) {
     const object = await config.bucket.head(key)
-    if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+    if (!object) return missing(config, url)
     return new Response(null, { status: 200, headers: objectHeaders(object, key) })
   }
 
@@ -60,11 +60,11 @@ export async function handleDownload(
   } catch (error) {
     // R2 throws for a range that starts past the end of the object. Anything
     // else is a real failure and must not be reported as the client's.
-    const unsatisfiable = requestedRange ? await rangeNotSatisfiable(key, requestedRange, config) : null
+    const unsatisfiable = requestedRange ? await rangeNotSatisfiable(key, requestedRange, config, url) : null
     if (unsatisfiable) return unsatisfiable
     throw error
   }
-  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+  if (!object) return missing(config, url)
 
   const headers = objectHeaders(object, key)
   const body = "body" in object ? object.body : null
@@ -103,7 +103,7 @@ function prefersAccessPage(request: Request, url: URL, config: Config): boolean 
 
 async function accessPageResponse(key: string, url: URL, config: Config): Promise<Response> {
   const object = await config.bucket.head(key)
-  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+  if (!object) return missing(config, url)
 
   const filename = decodeFilename(filenameFromKey(key))
   const contentType = object.httpMetadata?.contentType ?? ""
@@ -125,6 +125,10 @@ async function accessPageResponse(key: string, url: URL, config: Config): Promis
     }),
     { extraHeaders: { "X-Robots-Tag": NO_INDEX, Vary: VARY_ON_REQUEST_TYPE } },
   )
+}
+
+function missing(config: Config, url: URL): Response {
+  return notFound(formatDuration(config.fileTtlSeconds), url.origin)
 }
 
 /**
@@ -198,9 +202,14 @@ function parseRange(header: string | null): R2Range | null {
 }
 
 /** A 416 if `range` lies outside the object, a 404 if there is no object, else null. */
-async function rangeNotSatisfiable(key: string, range: R2Range, config: Config): Promise<Response | null> {
+async function rangeNotSatisfiable(
+  key: string,
+  range: R2Range,
+  config: Config,
+  url: URL,
+): Promise<Response | null> {
   const object = await config.bucket.head(key)
-  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+  if (!object) return missing(config, url)
   const outside = "suffix" in range ? range.suffix === 0 : (range.offset ?? 0) >= object.size
   if (!outside) return null
   return errorResponse("range_not_satisfiable", "Range Not Satisfiable", 416, {
