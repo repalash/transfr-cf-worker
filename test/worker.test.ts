@@ -66,6 +66,15 @@ describe("landing page", () => {
     expect(html).not.toMatch(/<script[^>]*src="https?:/)
     expect(html).not.toMatch(/<link[^>]*rel="stylesheet"[^>]*href="https?:/)
     expect(html).not.toMatch(/<script(?![^>]*(\ssrc=|type="application\/(ld\+)?json"))/)
+    expect(html).not.toContain("<style")
+    // Encryption runs in a worker from this origin, so the page itself does
+    // not load OpenPGP and stays responsive while a file is encrypted.
+    expect(response.headers.get("content-security-policy")).toContain("worker-src 'self'")
+    expect(html).not.toContain("openpgp")
+    // The upload dialog (encrypt or not, passphrase) is part of the page.
+    expect(html).toContain('<dialog id="send-dialog"')
+    expect(html).toContain('id="send-encrypt"')
+    expect(html).toContain('id="dropzone" role="button" tabindex="0"')
     // Every template token is filled in.
     expect(html).not.toContain("{{")
     // The page is told the real limits by the worker.
@@ -772,6 +781,11 @@ describe("access page", () => {
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
     expect(response.headers.get("vary")).toBe("Sec-Fetch-Dest, Accept")
     expect(response.headers.get("content-security-policy")).toContain("script-src 'self';")
+    expect(response.headers.get("content-security-policy")).toContain("worker-src 'self'")
+    const html = await response.text()
+    // The passphrase is asked for in a dialog, and OpenPGP loads in a worker.
+    expect(html).toContain('<dialog id="open-dialog"')
+    expect(html).not.toContain("openpgp")
   })
 
   it("gives fetch(), <img> and <video> in a browser the bytes, not the page", async () => {

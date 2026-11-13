@@ -111,10 +111,14 @@ html/            the pages, as plain files with {{TOKEN}} placeholders
   access.html      what a browser sees for an uploaded file, with PGP decryption
   llms.txt         the usage guide as plain text, for curl, scripts and AI agents
 public/assets/   static files for the pages, served by Cloudflare directly
-  index.js         landing page script: drop, paste, encrypt, upload
-  access.js        file page script: download and decrypt
+  index.js         landing page script: drop, paste, upload dialog, progress, copy link
+  access.js        file page script: passphrase dialog, download and decrypt
+  ui.js            shared by both: copy to clipboard, show/hide passphrase
+  crypto.js        encrypt and decrypt, by handing the work to crypto-worker.js
+  crypto-worker.js   web worker that runs OpenPGP, so the page never freezes
   openpgp.min.js   OpenPGP.js, pinned by an integrity hash (see NOTICE.md)
-  style.css, fonts/
+  style.css        the StackEdit stylesheet; app.css has the pages' own styles
+  fonts/
   og.png, icon.svg, apple-touch-icon.png   share image and icons (favicon.ico is in public/)
 src/
   index.ts         entry point and routing
@@ -141,7 +145,8 @@ TypeScript.
 
 The pages load nothing from other sites: scripts, stylesheet and fonts are in
 `public/assets` (the `[assets]` directory in `wrangler.toml`), and the page
-Content-Security-Policy allows scripts from this origin only, none inline.
+Content-Security-Policy allows scripts and workers from this origin only, none
+inline.
 
 ## Development
 

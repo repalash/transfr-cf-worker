@@ -1,16 +1,9 @@
 // File page: download an encrypted file and decrypt it in the browser.
 
-const file = JSON.parse(document.getElementById("transfr-file").textContent);
-const ARMOR_HEADER = "-----BEGIN PGP MESSAGE-----";
+import {decrypt} from "/assets/crypto.js";
+import {showHideButton} from "/assets/ui.js";
 
-/** Accepts both binary (`gpg -c`) and ASCII armored (`gpg -ac`) messages. */
-async function readMessage(bytes) {
-  const head = new TextDecoder().decode(bytes.slice(0, ARMOR_HEADER.length));
-  if (head === ARMOR_HEADER) {
-    return openpgp.readMessage({armoredMessage: new TextDecoder().decode(bytes)});
-  }
-  return openpgp.readMessage({binaryMessage: bytes});
-}
+const file = JSON.parse(document.getElementById("transfr-file").textContent);
 
 function saveFile(data, name) {
   const url = URL.createObjectURL(new File([data], name, {type: "application/octet-stream"}));
@@ -26,32 +19,56 @@ document.addEventListener("DOMContentLoaded", () => {
   const decryptLink = document.querySelector(".main-link-enc");
   if (!file.encrypted || !decryptLink) return;
 
-  let downloading = false;
+  const dialog = document.getElementById("open-dialog");
+  const passphraseInput = document.getElementById("open-passphrase");
+  let answer = null;
+
+  const showButton = document.getElementById("open-show");
+  showHideButton(passphraseInput, showButton);
+  document.getElementById("open-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    dialog.close("open");
+  });
+  document.getElementById("open-cancel").addEventListener("click", () => dialog.close("cancel"));
+  dialog.addEventListener("close", () => {
+    const passphrase = passphraseInput.value;
+    passphraseInput.value = "";
+    if (!answer) return;
+    answer(dialog.returnValue === "open" ? passphrase : null);
+    answer = null;
+  });
+
+  /** Resolves to the passphrase, or null if the dialog was cancelled. */
+  function askPassphrase() {
+    passphraseInput.type = "password";
+    showButton.textContent = "Show";
+    dialog.returnValue = "";
+    dialog.showModal();
+    passphraseInput.focus();
+    return new Promise((resolve) => { answer = resolve; });
+  }
+
+  let working = false;
   decryptLink.addEventListener("click", async (e) => {
     e.preventDefault();
-    if (downloading) return;
-    downloading = true;
+    if (working) return;
+    working = true;
     try {
-      const passphrase = prompt("Enter passphrase to decrypt the file with");
+      const passphrase = await askPassphrase();
       if (passphrase === null) return;
-      resultText.innerText = "Downloading file...";
+      resultText.textContent = "Downloading the file…";
       const res = await fetch(file.rawUrl);
       if (!res.ok) throw new Error("Download failed: " + res.status);
-      const encrypted = new Uint8Array(await res.arrayBuffer());
-      resultText.innerText = "Decrypting file...";
-      const decrypted = await openpgp.decrypt({
-        message: await readMessage(encrypted),
-        passwords: [passphrase],
-        format: "binary",
-      });
-      saveFile(decrypted.data, file.decryptedName);
-      resultText.innerText = "File downloaded.";
+      const encrypted = await res.arrayBuffer();
+      resultText.textContent = "Decrypting the file…";
+      saveFile(await decrypt(encrypted, passphrase), file.decryptedName);
+      resultText.textContent = "Decrypted. The file has been saved to your downloads.";
     } catch (err) {
       console.error(err);
-      resultText.innerText = "Could not decrypt the file. Check the passphrase, " +
+      resultText.textContent = "Could not decrypt the file. Check the passphrase and try again, " +
         "or download the raw file and decrypt it with gpg.";
     } finally {
-      downloading = false;
+      working = false;
     }
   });
 });

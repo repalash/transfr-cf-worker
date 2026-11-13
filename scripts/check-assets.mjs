@@ -1,7 +1,8 @@
 // Checks what the vitest suite cannot see from inside workerd: that every
-// /assets/... file the pages (and the stylesheet) reference exists under
-// public/, and that each `integrity` hash matches the file it pins. A stale
-// hash makes the browser refuse the script, which breaks encryption silently.
+// /assets/... file the pages, their scripts and the stylesheet reference exists
+// under public/, and that the vendored OpenPGP.js is still the exact file that
+// was reviewed. It is loaded by a worker, where the browser cannot check an
+// integrity hash itself, so the hash is checked here instead.
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -38,6 +39,24 @@ for (const image of ["public/assets/og.png", "public/assets/apple-touch-icon.png
   if (!existsSync(image)) failures.push(`${image} is missing: the share preview tags point at it`)
 }
 
+// Modules, workers and scripts that the page scripts load in turn.
+for (const script of readdirSync("public/assets").filter((name) => name.endsWith(".js") && !name.endsWith(".min.js"))) {
+  const source = readFileSync(join("public/assets", script), "utf8")
+  for (const [, url] of source.matchAll(/(?:from\s+|import\s*\(|new Worker\(|importScripts\()\s*["'](\/assets\/[^"']+)["']/g)) {
+    if (!existsSync(publicPath(url))) failures.push(`${script}: ${url} does not exist under public/`)
+  }
+}
+
+// Replace the file and this hash together when updating OpenPGP.js (see public/assets/NOTICE.md).
+const PINNED = {
+  "public/assets/openpgp.min.js": "sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r",
+}
+for (const [file, expected] of Object.entries(PINNED)) {
+  const [algorithm] = expected.split("-")
+  const actual = `${algorithm}-${createHash(algorithm).update(readFileSync(file)).digest("base64")}`
+  if (actual !== expected) failures.push(`${file} has changed: its hash is ${actual}, the pinned one is ${expected}`)
+}
+
 const stylesheet = "public/assets/style.css"
 for (const [, url] of readFileSync(stylesheet, "utf8").matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
   if (url.startsWith("data:")) continue
@@ -49,4 +68,4 @@ if (failures.length > 0) {
   console.error(failures.join("\n"))
   process.exit(1)
 }
-console.log("page assets: all referenced files exist and integrity hashes match")
+console.log("page assets: all referenced files exist and the pinned hashes match")

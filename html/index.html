@@ -27,91 +27,49 @@
   <meta name="twitter:image" content="{{SHARE_IMAGE_URL}}">
   <script type="application/ld+json">{{STRUCTURED_DATA_JSON}}</script>
   <link rel="stylesheet" href="/assets/style.css"/>
-  <style>
-      #dropzone {
-          border: 1px solid hsla(0, 0%, 50%, .33);
-          border-radius: 5px;
-          padding: 1rem;
-          color: #666;
-          transition: border 0.2s ease-in-out, background-color 0.2s ease-in-out;
-          cursor: pointer;
-      }
-
-      #dropzone:hover,
-      #dropzone.drop-hover {
-          border: 1px solid hsla(0, 0%, 50%, .66);
-      }
-
-      .drop-hover {
-          background-color: #3331;
-      }
-
-      .key-btn {
-          border-radius: 2px;
-          border: 1px solid #3334;
-          padding: 1px 2px 1px 2px;
-          font-size: 0.9rem;
-      }
-
-      #transfr_one {
-          margin-bottom: 2rem;
-      }
-
-      #encrypt-btn {
-          color: red;
-          cursor: pointer;
-          pointer-events: all;
-          background-color: transparent;
-          border: none;
-          padding: 4px 6px 4px 6px;
-          margin-left: -4px;
-          border-radius: 2px;
-          transition: background-color 0.2s ease-in-out;
-          font-size: 0.9rem;
-      }
-
-      #encrypt-btn:hover {
-          background-color: #33333310;
-      }
-
-      #encrypt-btn.active {
-          color: #2a9d1e;
-      }
-
-      #encrypt-btn:before {
-          content: '✖';
-          margin-right: 4px;
-      }
-
-      #encrypt-btn.active:before {
-          content: '🔐';
-          margin-right: 0;
-      }
-
-      pre {
-          max-width: 100%;
-      }
-  </style>
+  <link rel="stylesheet" href="/assets/app.css"/>
   <script id="transfr-config" type="application/json">{{CONFIG_JSON}}</script>
-  <!-- OpenPGP.js 5.10.2, served from this origin; the hash pins the exact file. -->
-  <script src="/assets/openpgp.min.js" integrity="sha384-FhdcYfX+EgAqf1TSB8S+o5Ry3y5nAHjxyxeSPyrzybvQhoCm4Xpap33cFJY4JB8r"></script>
   <script type="module" src="/assets/index.js"></script>
 </head>
 
 <body class="stackedit">
 <div class="stackedit__html"><h1 id="transfr_one">transfr.one</h1>
-  <p style="margin-bottom: 0.6rem;">Dead-simple, encrypted, super-fast, temporary file transfer/piping server, for your
+  <p class="tagline">Dead-simple, encrypted, super-fast, temporary file transfer/piping server, for your
     browser, code and terminal.</p>
-  <button id="encrypt-btn" class="active">&nbsp;E2E Encrypted</button>
-  <br>
-  <p id="dropzone-result" style="display: none;font-size: 0.85rem;"><br/></p>
-  <p id="dropzone">
-    <span id="dropzone-text">Drop a file anywhere on the page to instantly upload,
-      or click this box to browse, or copy and paste a file or text with
-      <span class="key-btn">⌘</span>/<span class="key-btn">Ctrl</span>+<span class="key-btn">V</span>
-    </span><br/>
-  </p>
-  <input type="file" id="file-input" style="display: none;">
+  <button id="encrypt-btn" class="active" type="button" aria-pressed="true"
+          title="When on, a file is encrypted in your browser with a passphrase before it is uploaded">End-to-end encryption on</button>
+  <div id="dropzone" role="button" tabindex="0">
+    Drop a file anywhere on the page to upload it, click this box to browse, or paste a file or text with
+    <span class="key-btn">⌘</span>/<span class="key-btn">Ctrl</span>+<span class="key-btn">V</span>
+  </div>
+  <input type="file" id="file-input" hidden>
+  <div id="status" class="status" role="status" hidden>
+    <span id="status-text" class="status-text"></span>
+    <progress id="status-progress" max="1"></progress>
+  </div>
+  <div id="result" class="result" role="status" hidden></div>
+
+  <dialog id="send-dialog" aria-labelledby="send-title">
+    <form id="send-form" method="dialog">
+      <h3 id="send-title">Send file</h3>
+      <p id="send-file" class="dialog-file"></p>
+      <label class="check"><input type="checkbox" id="send-encrypt"> Encrypt with a passphrase</label>
+      <div id="send-secret">
+        <label class="field-label" for="send-passphrase">Passphrase</label>
+        <div class="field">
+          <input type="password" id="send-passphrase" autocomplete="new-password">
+          <button type="button" class="btn" id="send-show">Show</button>
+        </div>
+        <p class="hint">The receiver needs it to open the file. It never leaves your browser.</p>
+        <p id="send-error" class="error" role="alert" hidden></p>
+      </div>
+      <p id="send-plain-note" class="hint" hidden>The file is stored as it is. Anyone with the link can read it.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="send-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="send-submit">Encrypt and upload</button>
+      </div>
+    </form>
+  </dialog>
   <h2 id="upload-a-file">Upload a file</h2>
   <h3 id="with-curl">With <code>curl</code></h3>
   <pre class=" language-sh"><code class="prism  language-sh">curl --upload-file ./file.txt {{ORIGIN}}

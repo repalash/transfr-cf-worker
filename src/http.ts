@@ -8,11 +8,13 @@ export const NO_INDEX = "noindex, nofollow"
 /**
  * Content Security Policy for the worker's own HTML pages. Scripts, styles and
  * fonts all come from this origin (public/assets), with no inline script, so
- * markup that somehow got into a page still could not run anything.
+ * markup that somehow got into a page still could not run anything. The one
+ * worker is the one that runs OpenPGP.js off the main thread.
  */
 const PAGE_CSP = [
   "default-src 'none'",
   "script-src 'self'",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "img-src 'self' data: blob:",
