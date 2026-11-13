@@ -41,5 +41,22 @@ RAW_ONLY_HOSTS = "bee.transfr.one"
 # copy: set this to your address, or remove it.
 CANONICAL_ORIGIN = "https://transfr.one"
 
+# Pipes and streams: one Durable Object per pipe or stream connects the two
+# sides, and stores a stream's bytes in its own SQLite database.
+[[durable_objects.bindings]]
+name = "CHANNELS"
+class_name = "Channel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Channel"]
+
+# Uploads, pipe sends and stream writes a client may start per minute. Counted
+# per Cloudflare location, so it is a brake on abuse, not an exact quota.
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [observability]
 enabled = true

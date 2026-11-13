@@ -129,7 +129,7 @@ async function handleFormUpload(
 }
 
 /** Null if the name can be stored, otherwise the response explaining why not. */
-function validateFilename(filename: string, url: URL): Response | null {
+export function validateFilename(filename: string, url: URL): Response | null {
   if (filename.length < 1) {
     return errorResponse("no_filename", `No filename: put one in the URL, like ${url.origin}/filename.txt`, 400)
   }

@@ -127,22 +127,31 @@ async function accessPageResponse(key: string, url: URL, config: Config): Promis
   )
 }
 
-function objectHeaders(object: R2Object, key: string): Headers {
-  const filename = decodeFilename(filenameFromKey(key))
-  const contentType = object.httpMetadata?.contentType || "application/octet-stream"
-
-  const headers = new Headers({
+/**
+ * Headers for bytes that came from an uploader, whatever they are served
+ * from (a stored file, a pipe, a stream). They are untrusted content on this
+ * origin, so the browser is told to download instead of render anything
+ * scriptable, never to sniff a type of its own, and to keep it out of search.
+ */
+export function untrustedContentHeaders(filename: string, contentType: string): Record<string, string> {
+  return {
     ...corsHeaders,
     "Content-Type": contentType,
-    "Content-Length": String(object.size),
-    // Uploads are untrusted content served from this origin, so the browser is
-    // told to download instead of render anything scriptable, and never to
-    // sniff a type of its own.
     "Content-Disposition": contentDisposition(filename, contentType),
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": FILE_CSP,
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": NO_INDEX,
+  }
+}
+
+function objectHeaders(object: R2Object, key: string): Headers {
+  const filename = decodeFilename(filenameFromKey(key))
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream"
+
+  const headers = new Headers({
+    ...untrustedContentHeaders(filename, contentType),
+    "Content-Length": String(object.size),
     Vary: VARY_ON_REQUEST_TYPE,
     "Accept-Ranges": "bytes",
     "Cache-Control": cacheControl(key),

@@ -16,6 +16,11 @@ const DEFAULT_MAX_FILE_SIZE_BYTES = 21_000_000 // 20 MB
  */
 const DEFAULT_MAX_BUFFERED_FILE_SIZE_BYTES = 21_000_000 // 20 MB
 const DEFAULT_FILE_TTL_SECONDS = 86_400 // 24 hours
+const DEFAULT_PIPE_WAIT_SECONDS = 300 // 5 minutes
+const DEFAULT_STREAM_MAX_BYTES = 1_000_000_000 // 1 GB
+const DEFAULT_STREAM_IDLE_TTL_SECONDS = 86_400 // 24 hours after the last write
+const DEFAULT_STREAM_MAX_TTL_SECONDS = 604_800 // 7 days after creation
+const DEFAULT_STREAM_FOLLOW_SECONDS = 3_600 // 1 hour
 
 export interface Config {
   bucket: R2Bucket
@@ -27,6 +32,16 @@ export interface Config {
   rawOnlyHosts: string[]
   /** Origin to point search engines and share previews at, or null to use the request's own. */
   canonicalOrigin: string | null
+  /** How long one side of a pipe waits for the other. */
+  pipeWaitSeconds: number
+  /** Largest a stream may grow. */
+  streamMaxBytes: number
+  /** A stream is deleted this long after its last write... */
+  streamIdleTtlSeconds: number
+  /** ...and this long after its creation at the latest. */
+  streamMaxTtlSeconds: number
+  /** How long a `?follow` connection is kept open. */
+  streamFollowSeconds: number
 }
 
 /** Thrown when the worker is misconfigured; surfaced as a 500, never as a 404. */
@@ -60,6 +75,11 @@ export function loadConfig(env: Env): Config {
       .map((host) => host.trim().toLowerCase())
       .filter((host) => host.length > 0),
     canonicalOrigin: origin(env.CANONICAL_ORIGIN, "CANONICAL_ORIGIN"),
+    pipeWaitSeconds: positiveInt(env.PIPE_WAIT_SECONDS, "PIPE_WAIT_SECONDS", DEFAULT_PIPE_WAIT_SECONDS),
+    streamMaxBytes: positiveInt(env.STREAM_MAX_BYTES, "STREAM_MAX_BYTES", DEFAULT_STREAM_MAX_BYTES),
+    streamIdleTtlSeconds: positiveInt(env.STREAM_IDLE_TTL, "STREAM_IDLE_TTL", DEFAULT_STREAM_IDLE_TTL_SECONDS),
+    streamMaxTtlSeconds: positiveInt(env.STREAM_MAX_TTL, "STREAM_MAX_TTL", DEFAULT_STREAM_MAX_TTL_SECONDS),
+    streamFollowSeconds: positiveInt(env.STREAM_FOLLOW_SECONDS, "STREAM_FOLLOW_SECONDS", DEFAULT_STREAM_FOLLOW_SECONDS),
   }
 }
 
