@@ -1,0 +1,110 @@
+# transfr.one
+
+Temporary file transfer over plain HTTP. Upload a file with one request, get a
+link back, share the link. Files are deleted after {{TTL_LABEL}}. No account, no
+API key, no client to install.
+
+## Upload
+
+PUT or POST the file's bytes to {{ORIGIN}}/<file name>. The reply is status 200
+and its body is the link, as plain text on one line.
+
+    curl --upload-file ./report.pdf {{ORIGIN}}/report.pdf
+    {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf
+
+Every upload gets a new link, even with a name used before. Percent-encode
+spaces and special characters in the name. With curl, ending the URL in "/"
+uses the local file's name and encodes it for you:
+
+    curl --upload-file "./q3 report (final).csv" {{ORIGIN}}/
+
+These work too:
+
+    curl --data-binary @report.pdf {{ORIGIN}}/report.pdf
+    curl -F file=@report.pdf {{ORIGIN}}/
+    echo "some text" | curl --data-binary @- {{ORIGIN}}/note.txt
+
+    # Python
+    link = requests.put("{{ORIGIN}}/report.pdf", data=open("report.pdf", "rb")).text.strip()
+
+    # JavaScript
+    const link = (await (await fetch("{{ORIGIN}}/report.pdf", { method: "PUT", body: file })).text()).trim()
+
+Send "Accept: application/json" to get JSON instead of the bare link (if you
+list other types too, JSON must rank above text/plain and */*). An example
+reply (the values are made up):
+
+    curl -H "Accept: application/json" --upload-file ./report.pdf {{ORIGIN}}/report.pdf
+    {"url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf","raw_url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf?raw=1","name":"report.pdf","size":48213,"content_type":"application/pdf","md5":"9e107d9d372bb6826bd81d3542a419d6","expires_at":"2026-01-01T12:00:00.000Z","expires_in_seconds":86400}
+
+- url: for people. raw_url: for programs (see Download).
+- content_type: the Content-Type header you sent. If you sent none, or a
+  placeholder (application/octet-stream, or the form type curl -d sends), it is
+  taken from the file extension when that is a known one. Contents are never
+  inspected.
+- md5: of the stored bytes, to check an upload without downloading it again.
+- expires_at: to the second. The link answers 404 from that moment on.
+
+Without JSON, the same expiry time is in the reply's X-Expires-At header.
+
+## Download
+
+    curl -L {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf -o report.pdf
+
+A GET returns the file's bytes, and supports Range requests. One exception: a
+request that asks for a web page gets an HTML page with a download button
+instead. That means a browser opening the link (it sends "Sec-Fetch-Dest:
+document"), or a client that sends "Accept: text/html" and no Sec-Fetch-Dest
+header. curl, fetch() and HTTP libraries with their default headers get the
+bytes.
+
+To get the bytes whatever the headers, add ?raw=1 to the link. That is the
+"raw_url" above; use it whenever a program is the reader.
+
+A GET or HEAD reply carries X-Expires-At (when the link stops working) and an
+ETag, which is the MD5 of the file in quotes.
+
+## Encrypt (optional)
+
+The server never needs to see the contents. Encrypt before uploading:
+
+    gpg -c -o- report.pdf | curl --data-binary @- {{ORIGIN}}/report.pdf.pgp
+    curl -L <link> | gpg -d -o report.pdf
+
+A file whose name ends in .pgp, .gpg or .asc can also be decrypted in the
+browser, on the page its link opens.
+
+## Limits
+
+- Size: up to {{MAX_FILE_SIZE_LABEL}} ({{MAX_FILE_SIZE_BYTES}} bytes). Form uploads (curl -F) and
+  uploads sent without a Content-Length: up to {{MAX_BUFFERED_FILE_SIZE_LABEL}}.
+- Lifetime: {{TTL_LABEL}}. After that the link answers 404. A file cannot be
+  deleted earlier, replaced or listed.
+- The link is the only protection. It cannot be guessed, and anyone who has it
+  can download the file. Treat it like a password.
+- File names: up to 256 characters, and may contain "/". Not allowed: control
+  characters, and empty, "." or ".." path segments. The name becomes part of
+  the link.
+
+## Errors
+
+Errors are one line of plain text that says what to change. A short code that
+does not change is in the X-Error-Code header. With "Accept: application/json"
+the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status": 400}
+
+- 400  no_filename, empty_body, invalid_filename, filename_too_long,
+       length_mismatch (the body was not as long as its Content-Length),
+       invalid_form, no_file_in_form
+- 404  not_found: the link is wrong or the file has expired
+- 405  method_not_allowed: only GET, HEAD, PUT, POST and OPTIONS are supported
+- 413  too_large: the file is larger than the limit
+- 416  range_not_satisfiable
+
+## For AI agents
+
+- Uploading needs a tool that can send PUT or POST, such as curl in a shell. A
+  tool that can only fetch pages can download a file but not upload one.
+- To share a file with a person, give them the link. To hand a file to another
+  program, give it the raw_url (the link with ?raw=1 added).
+- This page is also served at {{ORIGIN}}/llms.txt. The source is at
+  https://github.com/repalash/transfr-cf-worker

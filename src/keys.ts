@@ -29,7 +29,11 @@ export function createObjectKey(filename: string, ttlSeconds: number, now: numbe
 export function randomHex(bytes: number): string {
   const buffer = new Uint8Array(bytes)
   crypto.getRandomValues(buffer)
-  return Array.from(buffer, (byte) => byte.toString(16).padStart(2, "0")).join("")
+  return toHex(buffer)
+}
+
+export function toHex(bytes: ArrayBuffer | Uint8Array): string {
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /** Expiry encoded in the key, or `null` for keys that do not carry one. */

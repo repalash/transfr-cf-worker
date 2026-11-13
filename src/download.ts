@@ -1,14 +1,15 @@
 import type { Config } from "./config"
 import { corsHeaders } from "./cors"
-import { htmlResponse, notFound, textResponse } from "./http"
+import { errorResponse, htmlResponse, isNavigation, NO_INDEX, notFound } from "./http"
 import { decodeFilename, filenameFromKey, isExpired, parseExpiry } from "./keys"
 import { contentDisposition } from "./mime"
-import { renderAccessPage, renderIndexPage } from "./pages"
+import { formatDuration } from "./format"
+import { renderAccessPage } from "./pages"
+import { siteResponse } from "./site"
 
-const EXPOSED_HEADERS = "Content-Length, Content-Range, Content-Type, Content-Disposition, ETag, Last-Modified"
+const EXPOSED_HEADERS =
+  "Content-Length, Content-Range, Content-Type, Content-Disposition, ETag, Last-Modified, X-Expires-At"
 const MAX_BROWSER_CACHE_SECONDS = 86_400
-/** Shared files are private to whoever has the link; keep them out of search engines. */
-const NO_INDEX = "noindex, nofollow"
 /** The same link answers with the file page or the bytes depending on these. */
 const VARY_ON_REQUEST_TYPE = "Sec-Fetch-Dest, Accept"
 /**
@@ -28,13 +29,15 @@ export async function handleDownload(
   const key = url.pathname.replace(/^\/+/, "")
   const isHead = request.method === "HEAD"
 
-  if (key.length < 1) return htmlResponse(renderIndexPage(url.origin, config), { withBody: !isHead })
+  // The landing page, the text guide, robots.txt and the sitemap.
+  const site = siteResponse(request, url, config, key)
+  if (site) return site
 
   // The expiry is part of the key, so the file stops being served on time even
   // if the R2 lifecycle rule (day granularity) has not removed it yet.
   if (isExpired(key)) {
     ctx.waitUntil(config.bucket.delete(key).catch((error) => console.error("expired object delete failed", error)))
-    return notFound()
+    return notFound(formatDuration(config.fileTtlSeconds))
   }
 
   if (!isHead && !url.searchParams.has("raw") && prefersAccessPage(request, url, config)) {
@@ -43,7 +46,7 @@ export async function handleDownload(
 
   if (isHead) {
     const object = await config.bucket.head(key)
-    if (!object) return notFound()
+    if (!object) return notFound(formatDuration(config.fileTtlSeconds))
     return new Response(null, { status: 200, headers: objectHeaders(object, key) })
   }
 
@@ -61,7 +64,7 @@ export async function handleDownload(
     if (unsatisfiable) return unsatisfiable
     throw error
   }
-  if (!object) return notFound()
+  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
 
   const headers = objectHeaders(object, key)
   const body = "body" in object ? object.body : null
@@ -75,7 +78,9 @@ export async function handleDownload(
   const range = requestedRange ? resolveRange(object.range ?? requestedRange, object.size) : null
   if (range && range.length < 1) {
     await body.cancel()
-    return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
+    return errorResponse("range_not_satisfiable", "Range Not Satisfiable", 416, {
+      "Content-Range": `bytes */${object.size}`,
+    })
   }
   if (range) {
     headers.set("Content-Length", String(range.length))
@@ -93,17 +98,12 @@ export async function handleDownload(
  */
 function prefersAccessPage(request: Request, url: URL, config: Config): boolean {
   if (config.rawOnlyHosts.includes(url.hostname.toLowerCase())) return false
-  // Sent by every current browser: "document" for a navigation, "empty" for
-  // fetch(), "image", "video", ... for embeds.
-  const destination = request.headers.get("sec-fetch-dest")
-  if (destination !== null) return destination === "document"
-  // Older browsers and link previewers: a page is wanted if HTML is asked for.
-  return (request.headers.get("accept") ?? "").toLowerCase().includes("text/html")
+  return isNavigation(request)
 }
 
 async function accessPageResponse(key: string, url: URL, config: Config): Promise<Response> {
   const object = await config.bucket.head(key)
-  if (!object) return notFound()
+  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
 
   const filename = decodeFilename(filenameFromKey(key))
   const contentType = object.httpMetadata?.contentType ?? ""
@@ -119,6 +119,7 @@ async function accessPageResponse(key: string, url: URL, config: Config): Promis
       fileUrl,
       rawUrl: `${fileUrl}?raw=1`,
       homeUrl: `${url.origin}/`,
+      siteOrigin: config.canonicalOrigin ?? url.origin,
       expiresAt: parseExpiry(key),
       ttlSeconds: config.fileTtlSeconds,
     }),
@@ -149,6 +150,9 @@ function objectHeaders(object: R2Object, key: string): Headers {
     "Access-Control-Expose-Headers": EXPOSED_HEADERS,
   })
   if (object.httpEtag) headers.set("ETag", object.httpEtag)
+  // So a client that only has the link can still learn when it stops working.
+  const expiresAt = parseExpiry(key)
+  if (expiresAt !== null) headers.set("X-Expires-At", new Date(expiresAt * 1000).toISOString())
   return headers
 }
 
@@ -187,8 +191,10 @@ function parseRange(header: string | null): R2Range | null {
 /** A 416 if `range` lies outside the object, a 404 if there is no object, else null. */
 async function rangeNotSatisfiable(key: string, range: R2Range, config: Config): Promise<Response | null> {
   const object = await config.bucket.head(key)
-  if (!object) return notFound()
+  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
   const outside = "suffix" in range ? range.suffix === 0 : (range.offset ?? 0) >= object.size
   if (!outside) return null
-  return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
+  return errorResponse("range_not_satisfiable", "Range Not Satisfiable", 416, {
+      "Content-Range": `bytes */${object.size}`,
+    })
 }

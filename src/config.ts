@@ -25,6 +25,8 @@ export interface Config {
   maxBufferedFileSizeBytes: number
   fileTtlSeconds: number
   rawOnlyHosts: string[]
+  /** Origin to point search engines and share previews at, or null to use the request's own. */
+  canonicalOrigin: string | null
 }
 
 /** Thrown when the worker is misconfigured; surfaced as a 500, never as a 404. */
@@ -57,7 +59,23 @@ export function loadConfig(env: Env): Config {
       .split(",")
       .map((host) => host.trim().toLowerCase())
       .filter((host) => host.length > 0),
+    canonicalOrigin: origin(env.CANONICAL_ORIGIN, "CANONICAL_ORIGIN"),
   }
+}
+
+/** An optional `https://host` variable, normalised to an origin with no trailing slash. */
+function origin(value: string | undefined, name: string): string | null {
+  if (value === undefined || value.trim() === "") return null
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw new ConfigError(`${name} must be an origin like https://example.com, got ${JSON.stringify(value)}`)
+  }
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.pathname !== "/" || url.search || url.hash) {
+    throw new ConfigError(`${name} must be an origin like https://example.com, got ${JSON.stringify(value)}`)
+  }
+  return url.origin
 }
 
 /**

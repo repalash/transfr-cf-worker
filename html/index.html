@@ -4,7 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>transfr.one</title>
+  <title>transfr.one: temporary, encrypted file transfer for browser, curl and code</title>
+  <meta name="description" content="{{DESCRIPTION}}">
+  <link rel="canonical" href="{{CANONICAL_URL}}">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="Usage guide for scripts and AI agents">
+  <meta name="theme-color" content="#111111">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="transfr.one">
+  <meta property="og:title" content="transfr.one: temporary, encrypted file transfer">
+  <meta property="og:description" content="{{DESCRIPTION}}">
+  <meta property="og:url" content="{{CANONICAL_URL}}">
+  <meta property="og:image" content="{{SHARE_IMAGE_URL}}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="transfr.one: send a file with one curl command">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="transfr.one: temporary, encrypted file transfer">
+  <meta name="twitter:description" content="{{DESCRIPTION}}">
+  <meta name="twitter:image" content="{{SHARE_IMAGE_URL}}">
+  <script type="application/ld+json">{{STRUCTURED_DATA_JSON}}</script>
   <link rel="stylesheet" href="/assets/style.css"/>
   <style>
       #dropzone {
@@ -165,6 +186,9 @@ response <span class="token operator">=</span> requests<span class="token punctu
     <li>Max file upload size is <code>{{MAX_FILE_SIZE_LABEL}}</code>
       (<code>{{MAX_BUFFERED_FILE_SIZE_LABEL}}</code> for a streamed upload without a <code>Content-Length</code>,
       like <code>curl -T -</code>, and for form uploads, like <code>curl -F</code>).</li>
+    <li>Scripts and AI agents: the same instructions as plain text are at <a href="/llms.txt">/llms.txt</a>,
+      and <code>curl {{ORIGIN}}</code> prints them. Send <code>Accept: application/json</code> with an upload to
+      get the link, size and expiry as JSON.</li>
     <li>This is a free service, please try not to abuse.</li>
     <li>Powered by Cloudflare Workers. Check out the source code to host your own: <a
       href="https://github.com/repalash/transfr-cf-worker">https://github.com/repalash/transfr-cf-worker</a></li>

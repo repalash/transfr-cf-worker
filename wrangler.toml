@@ -5,10 +5,11 @@ workers_dev = true
 # The live worker has Logpush on; a deploy without this would turn it off.
 logpush = true
 
-# The HTML pages live in html/ and are bundled as text modules.
+# The HTML pages and the plain text guide live in html/ and are bundled as
+# text modules.
 [[rules]]
 type = "Text"
-globs = ["**/*.html"]
+globs = ["**/*.html", "**/*.txt"]
 fallthrough = false
 
 # Scripts, stylesheet and fonts for the pages. Cloudflare serves a request
@@ -35,6 +36,10 @@ R2_MAX_BUFFERED_FILE_SIZE_BYTES = "21000000" # 20 MB
 R2_DEFAULT_FILE_TTL = "86400" # 24 hours
 # Hosts that always serve the stored bytes instead of the HTML landing page.
 RAW_ONLY_HOSTS = "bee.transfr.one"
+# The address search engines should index. The landing page on any other host
+# this worker answers on is marked noindex and points here. Deploying your own
+# copy: set this to your address, or remove it.
+CANONICAL_ORIGIN = "https://transfr.one"
 
 [observability]
 enabled = true

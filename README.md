@@ -11,10 +11,12 @@ Check it out: https://transfr.one
 
 | Method       | Path       | Description                                                                              |
 | ------------ | ---------- | ---------------------------------------------------------------------------------------- |
-| `GET`        | `/`        | The landing page with usage instructions.                                                 |
+| `GET`        | `/`        | The landing page. Command line tools and scripts get the same instructions as plain text. |
+| `GET`        | `/llms.txt` | The usage guide as plain text, for scripts and AI agents.                                |
 | `PUT`/`POST` | `/<name>`  | Upload a file, returns the URL to download it from.                                       |
 | `GET`/`HEAD` | `/<key>`   | Download a file. Opening the link in a browser shows an HTML page instead; `?raw` always returns the bytes. |
 | `OPTIONS`    | any        | CORS preflight.                                                                           |
+| `GET`        | `/robots.txt`, `/sitemap.xml` | For search engines; both name the canonical address.                  |
 
 ```sh
 curl --upload-file ./file.txt https://transfr.one/file.txt
@@ -33,6 +35,18 @@ Object keys are `<random-hex>-<expiry-hex>/<file name>`. The expiry is part of
 the key, so the worker stops serving a file on time even though R2 lifecycle
 rules only delete once a day; the 6 random bytes are the only secret protecting
 a file, so treat the URL like a password.
+
+Send `Accept: application/json` with an upload to get JSON instead of the bare
+link (JSON has to be the preferred type: a header that lists it level with
+`text/plain` or `*/*`, as axios sends by default, keeps the plain reply) (`url`, `raw_url`, `name`, `size`, `content_type`, `expires_at`,
+`md5`, `expires_in_seconds`); errors then come back as
+`{"error": "...", "code": "...", "status": 400}`. Every error also carries its
+code in `X-Error-Code`, and uploads and downloads carry `X-Expires-At`.
+
+When the client sends no content type, or a placeholder (`curl --upload-file`
+sends none, `curl --data-binary` sends the form type), the type is taken from
+the file extension if it is a known one. So a `.txt` or `.png` uploaded with
+curl opens in the browser instead of downloading.
 
 A form upload works too: `curl -F file=@file.txt https://transfr.one/` stores
 the file inside the form, named after the URL path or, without one, after the
@@ -57,18 +71,21 @@ pages are sent with `X-Robots-Tag: noindex`.
 ## Layout
 
 ```
-html/            the two pages, as plain HTML with {{TOKEN}} placeholders
+html/            the pages, as plain files with {{TOKEN}} placeholders
   index.html       landing page: drag & drop upload, optional PGP encryption
   access.html      what a browser sees for an uploaded file, with PGP decryption
+  llms.txt         the usage guide as plain text, for curl, scripts and AI agents
 public/assets/   static files for the pages, served by Cloudflare directly
   index.js         landing page script: drop, paste, encrypt, upload
   access.js        file page script: download and decrypt
   openpgp.min.js   OpenPGP.js, pinned by an integrity hash (see NOTICE.md)
   style.css, fonts/
+  og.png, icon.svg, apple-touch-icon.png   share image and icons (favicon.ico is in public/)
 src/
   index.ts         entry point and routing
   upload.ts        PUT/POST: validation, form uploads, storing the object
   download.ts      GET/HEAD: ranges, conditional requests, download headers
+  site.ts          the landing page, text guide, robots.txt and sitemap
   pages.ts         fills the HTML templates
   templates.ts     single pass {{TOKEN}} substitution
   escape.ts        HTML, JSON-in-script and shell escaping
@@ -76,13 +93,14 @@ src/
   config.ts        bindings and variables, validated
   cors.ts          CORS headers and preflight
   http.ts          response helpers and page security headers
-  mime.ts          content type validation, Content-Disposition
+  mime.ts          content type validation and guessing, Content-Disposition
   format.ts        human readable sizes and durations
 test/            vitest tests, run inside workerd via @cloudflare/vitest-pool-workers
 ```
 
-The HTML files are bundled as text modules (the `Text` rule in `wrangler.toml`),
-so they are plain editable HTML rather than strings inside TypeScript.
+The files in `html/` are bundled as text modules (the `Text` rule in
+`wrangler.toml`), so they are plain editable files rather than strings inside
+TypeScript.
 
 The pages load nothing from other sites: scripts, stylesheet and fonts are in
 `public/assets` (the `[assets]` directory in `wrangler.toml`), and the page
@@ -93,8 +111,9 @@ Content-Security-Policy allows scripts from this origin only, none inline.
 ```sh
 npm ci             # installs exactly what package-lock.json pins
 npm run dev        # wrangler dev, R2 simulated locally
-npm test           # vitest, runs the worker inside workerd
+npm test           # vitest, runs the worker inside workerd, then checks the page assets
 npm run typecheck
+npm run build      # bundles as a deploy would, without deploying
 ```
 
 ## Initial setup
@@ -110,7 +129,9 @@ and log in with `wrangler login`.
    ```
 
 2. Point `wrangler.toml` at it: set `bucket_name` under `[[r2_buckets]]`, and
-   make sure `binding` matches the `R2_DEFAULT_NAMESPACE` variable.
+   make sure `binding` matches the `R2_DEFAULT_NAMESPACE` variable. Set
+   `CANONICAL_ORIGIN` to your own address or remove it; left as it is, your
+   landing page is marked `noindex` and names transfr.one as the canonical one.
 
 3. Deploy and map the route to your domain on the Cloudflare dashboard:
 
@@ -121,8 +142,8 @@ and log in with `wrangler login`.
 ### Continuous deployment
 
 CI (`.github/workflows/ci.yml`) installs the dependencies pinned in
-`package-lock.json`, runs the type check and tests on every pull request and
-push, and deploys `main` with `wrangler deploy` once they pass. It
+`package-lock.json`, runs the type check, the tests and a dry-run build on every
+pull request and push, and deploys `main` with `wrangler deploy` once they pass. It
 can also be run by hand from the Actions tab (`workflow_dispatch`). The deploy
 job runs in the `production` environment (Settings > Environments) and needs two
 secrets there:
@@ -148,6 +169,7 @@ Variables in `wrangler.toml` under `[vars]`:
 | `R2_MAX_BUFFERED_FILE_SIZE_BYTES` | `21000000` | Largest upload without a `Content-Length` (chunked) or sent as a form, both of which are buffered in memory. Capped at `R2_MAX_FILE_SIZE_BYTES`. |
 | `R2_DEFAULT_FILE_TTL`    | `86400`    | File lifetime in seconds.                                       |
 | `RAW_ONLY_HOSTS`         | –          | Hosts that always serve bytes, never the HTML page, e.g. for embedding. |
+| `CANONICAL_ORIGIN`       | –          | The address search engines should index, e.g. `https://transfr.one`. The landing page on any other host is marked `noindex` and points here. Unset, each host is its own canonical address. |
 
 An invalid value is a startup error rather than a silently ignored limit.
 
