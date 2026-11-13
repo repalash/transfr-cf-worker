@@ -33,7 +33,7 @@ R2_MAX_FILE_SIZE_BYTES = "100000000" # 100 MB (shown as 95 MB, in 1024-based uni
 # Uploads without a Content-Length (chunked, e.g. `curl -T -`) are buffered in
 # the Worker's 128 MB of memory, so they get a lower limit.
 R2_MAX_BUFFERED_FILE_SIZE_BYTES = "21000000" # 20 MB
-R2_DEFAULT_FILE_TTL = "86400" # 24 hours
+R2_DEFAULT_FILE_TTL = "604800" # 7 days, the same as the bucket lifecycle rule
 # Hosts that always serve the stored bytes instead of the HTML landing page.
 RAW_ONLY_HOSTS = "bee.transfr.one"
 # The address search engines should index. The landing page on any other host
