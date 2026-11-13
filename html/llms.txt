@@ -30,8 +30,9 @@ These work too:
     # JavaScript
     const link = (await (await fetch("{{ORIGIN}}/report.pdf", { method: "PUT", body: file })).text()).trim()
 
-Send "Accept: application/json", and no other type, to get JSON instead of the
-bare link. An example reply (the values are made up):
+Send "Accept: application/json" to get JSON instead of the bare link (if you
+list other types too, JSON must rank above text/plain and */*). An example
+reply (the values are made up):
 
     curl -H "Accept: application/json" --upload-file ./report.pdf {{ORIGIN}}/report.pdf
     {"url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf","raw_url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf?raw=1","name":"report.pdf","size":48213,"content_type":"application/pdf","md5":"9e107d9d372bb6826bd81d3542a419d6","expires_at":"2026-01-01T12:00:00.000Z","expires_in_seconds":86400}
@@ -89,7 +90,7 @@ browser, on the page its link opens.
 
 Errors are one line of plain text that says what to change. A short code that
 does not change is in the X-Error-Code header. With "Accept: application/json"
-alone, the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status": 400}
+the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status": 400}
 
 - 400  no_filename, empty_body, invalid_filename, filename_too_long,
        length_mismatch (the body was not as long as its Content-Length),

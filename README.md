@@ -36,8 +36,9 @@ the key, so the worker stops serving a file on time even though R2 lifecycle
 rules only delete once a day; the 6 random bytes are the only secret protecting
 a file, so treat the URL like a password.
 
-Send `Accept: application/json` (and no other type) with an upload to get JSON
-instead of the bare link (`url`, `raw_url`, `name`, `size`, `content_type`, `expires_at`,
+Send `Accept: application/json` with an upload to get JSON instead of the bare
+link (JSON has to be the preferred type: a header that lists it level with
+`text/plain` or `*/*`, as axios sends by default, keeps the plain reply) (`url`, `raw_url`, `name`, `size`, `content_type`, `expires_at`,
 `md5`, `expires_in_seconds`); errors then come back as
 `{"error": "...", "code": "...", "status": 400}`. Every error also carries its
 code in `X-Error-Code`, and uploads and downloads carry `X-Expires-At`.
@@ -128,7 +129,9 @@ and log in with `wrangler login`.
    ```
 
 2. Point `wrangler.toml` at it: set `bucket_name` under `[[r2_buckets]]`, and
-   make sure `binding` matches the `R2_DEFAULT_NAMESPACE` variable.
+   make sure `binding` matches the `R2_DEFAULT_NAMESPACE` variable. Set
+   `CANONICAL_ORIGIN` to your own address or remove it; left as it is, your
+   landing page is marked `noindex` and names transfr.one as the canonical one.
 
 3. Deploy and map the route to your domain on the Cloudflare dashboard:
 

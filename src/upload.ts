@@ -1,6 +1,6 @@
 import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
 import { errorResponse, jsonResponse, textResponse, wantsJson } from "./http"
-import { createObjectKey, decodeFilename } from "./keys"
+import { createObjectKey, decodeFilename, toHex } from "./keys"
 import { contentTypeFor } from "./mime"
 
 /** A multipart form adds boundaries and part headers around the file. */
@@ -176,7 +176,7 @@ async function store(
       name,
       size: object.size,
       content_type: contentType ?? "application/octet-stream",
-      md5: object.checksums.md5 ? hex(object.checksums.md5) : undefined,
+      md5: object.checksums.md5 ? toHex(object.checksums.md5) : undefined,
       expires_at: expires,
       expires_in_seconds: config.fileTtlSeconds,
     })
@@ -190,10 +190,6 @@ function emptyBody(url: URL): Response {
     `Empty body, there is nothing to upload. Send the file's bytes as the request body: PUT ${url.origin}/<file name>`,
     400,
   )
-}
-
-function hex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */

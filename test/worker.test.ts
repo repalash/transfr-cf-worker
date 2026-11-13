@@ -143,6 +143,9 @@ describe("scripts and agents", () => {
       { "user-agent": CURL_UA },
       { "user-agent": "python-requests/2.32.0", accept: "*/*" },
       { "user-agent": "SomeAgent/1.0", accept: "text/markdown, text/plain;q=0.9" },
+      // PowerShell's Invoke-WebRequest starts its User-Agent like a browser.
+      { "user-agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.19041.4648" },
+      { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.19045; en-US) PowerShell/7.4.6" },
     ]
     for (const headers of clients) {
       const response = await call(new Request("https://transfr.test/", { headers }))
@@ -221,6 +224,28 @@ describe("scripts and agents", () => {
     const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers }))
     expect(missing.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     expect(missing.headers.get("x-error-code")).toBe("not_found")
+  })
+
+  it("answers with JSON only when the Accept header ranks it first", async () => {
+    const replyType = async (accept: string) => {
+      const response = await call(
+        new Request("https://transfr.test/a.txt", { method: "PUT", body: "data", headers: { accept } }),
+      )
+      return response.headers.get("content-type")
+    }
+    const json = "application/json; charset=utf-8"
+    const text = "text/plain; charset=utf-8"
+    expect(await replyType("application/json")).toBe(json)
+    // jQuery's dataType: "json": JSON, with anything else as a distant fallback.
+    expect(await replyType("application/json, text/javascript, */*; q=0.01")).toBe(json)
+    expect(await replyType("Application/JSON;q=0.9, text/plain;q=0.5")).toBe(json)
+    expect(await replyType("application/json, */*")).toBe(text)
+    expect(await replyType("application/json;q=0.5, text/plain")).toBe(text)
+    expect(await replyType("application/json;q=0")).toBe(text)
+    expect(await replyType("application/json;q=oops")).toBe(text)
+    expect(await replyType("text/html, application/json")).toBe(text)
+    expect(await replyType("application/jsonl")).toBe(text)
+    expect(await replyType("*/*")).toBe(text)
   })
 
   it("answers errors with JSON when asked", async () => {

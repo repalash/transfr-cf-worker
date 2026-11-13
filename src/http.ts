@@ -87,22 +87,37 @@ export function isNavigation(request: Request): boolean {
 }
 
 /**
- * True if the client asked for JSON and nothing else. Libraries such as axios
- * list JSON, plain text and "anything" on every request without the caller
- * asking for it; they keep getting the plain text replies they always got.
+ * True if JSON is what the client prefers: its Accept header lists
+ * application/json above plain text, HTML and "anything". Libraries such as
+ * axios list JSON, plain text and "anything" as equals on every request,
+ * without the caller asking for it; they keep the plain text replies they
+ * always got. A client that asks for JSON with a low priority fallback, as
+ * jQuery does, gets JSON.
  */
 export function wantsJson(request: Request): boolean {
-  return (
-    accepts(request, "application/json") &&
-    !accepts(request, "text/html") &&
-    !accepts(request, "text/plain") &&
-    !accepts(request, "*/*")
-  )
+  const json = quality(request, "application/json")
+  const others = ["text/plain", "text/html", "*/*"].map((type) => quality(request, type))
+  return json > 0 && json > Math.max(...others)
 }
 
-/** Command line tools and HTTP libraries, by the start of their User-Agent. */
+/** The weight (q-value) the Accept header gives a media type; 0 if it is not listed. */
+function quality(request: Request, type: string): number {
+  for (const entry of (request.headers.get("accept") ?? "").toLowerCase().split(",")) {
+    const [name, ...parameters] = entry.split(";").map((part) => part.trim())
+    if (name !== type) continue
+    const q = parameters.find((parameter) => parameter.startsWith("q="))
+    const weight = q === undefined ? 1 : Number(q.slice(2))
+    return Number.isFinite(weight) ? weight : 0
+  }
+  return 0
+}
+
+/**
+ * Command line tools and HTTP libraries, by the start of their User-Agent.
+ * PowerShell is the exception: its User-Agent starts like a browser's.
+ */
 const CLI_USER_AGENT =
-  /^(curl|wget|httpie|python|go-http-client|node|undici|axios|deno|bun|okhttp|java|ruby|libwww-perl)\b/i
+  /^(curl|wget|httpie|python|go-http-client|node|undici|axios|deno|bun|okhttp|java|ruby|libwww-perl)\b|powershell\//i
 
 /**
  * True if the landing page should be the plain text guide rather than HTML:
