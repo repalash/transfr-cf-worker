@@ -1,13 +1,14 @@
 import type { Config } from "./config"
 import { corsHeaders } from "./cors"
-import { htmlResponse, isNavigation, NO_INDEX, notFound, textResponse } from "./http"
+import { errorResponse, htmlResponse, isNavigation, NO_INDEX, notFound } from "./http"
 import { decodeFilename, filenameFromKey, isExpired, parseExpiry } from "./keys"
 import { contentDisposition } from "./mime"
 import { formatDuration } from "./format"
 import { renderAccessPage } from "./pages"
 import { siteResponse } from "./site"
 
-const EXPOSED_HEADERS = "Content-Length, Content-Range, Content-Type, Content-Disposition, ETag, Last-Modified"
+const EXPOSED_HEADERS =
+  "Content-Length, Content-Range, Content-Type, Content-Disposition, ETag, Last-Modified, X-Expires-At"
 const MAX_BROWSER_CACHE_SECONDS = 86_400
 /** The same link answers with the file page or the bytes depending on these. */
 const VARY_ON_REQUEST_TYPE = "Sec-Fetch-Dest, Accept"
@@ -77,7 +78,9 @@ export async function handleDownload(
   const range = requestedRange ? resolveRange(object.range ?? requestedRange, object.size) : null
   if (range && range.length < 1) {
     await body.cancel()
-    return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
+    return errorResponse("range_not_satisfiable", "Range Not Satisfiable", 416, {
+      "Content-Range": `bytes */${object.size}`,
+    })
   }
   if (range) {
     headers.set("Content-Length", String(range.length))
@@ -147,6 +150,9 @@ function objectHeaders(object: R2Object, key: string): Headers {
     "Access-Control-Expose-Headers": EXPOSED_HEADERS,
   })
   if (object.httpEtag) headers.set("ETag", object.httpEtag)
+  // So a client that only has the link can still learn when it stops working.
+  const expiresAt = parseExpiry(key)
+  if (expiresAt !== null) headers.set("X-Expires-At", new Date(expiresAt * 1000).toISOString())
   return headers
 }
 
@@ -188,5 +194,7 @@ async function rangeNotSatisfiable(key: string, range: R2Range, config: Config):
   if (!object) return notFound(formatDuration(config.fileTtlSeconds))
   const outside = "suffix" in range ? range.suffix === 0 : (range.offset ?? 0) >= object.size
   if (!outside) return null
-  return textResponse("Range Not Satisfiable\n", 416, { "Content-Range": `bytes */${object.size}` })
+  return errorResponse("range_not_satisfiable", "Range Not Satisfiable", 416, {
+      "Content-Range": `bytes */${object.size}`,
+    })
 }

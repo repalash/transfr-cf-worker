@@ -1,5 +1,5 @@
 import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
-import { jsonResponse, textResponse, wantsJson } from "./http"
+import { errorResponse, jsonResponse, textResponse, wantsJson } from "./http"
 import { createObjectKey, decodeFilename } from "./keys"
 import { contentTypeFor } from "./mime"
 
@@ -16,13 +16,13 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
     const invalid = validateFilename(pathName, url)
     if (invalid) return invalid
   }
-  if (!request.body) return emptyBody()
+  if (!request.body) return emptyBody(url)
   if (isForm) return await handleFormUpload(request, request.body, url, pathName, config)
 
   const declared = parseContentLength(request.headers.get("content-length"))
-  if (declared === 0) return emptyBody()
+  if (declared === 0) return emptyBody(url)
   if (declared !== null && declared > config.maxFileSizeBytes) {
-    return textResponse(`Invalid file size: ${declared}, max size = ${config.maxFileSizeBytes}\n`, 413)
+    return errorResponse("too_large", `Invalid file size: ${declared}, max size = ${config.maxFileSizeBytes}`, 413)
   }
 
   // R2 needs to know an object's length up front. With a Content-Length the
@@ -32,15 +32,16 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
   if (declared === null) {
     const buffered = await readAtMost(request.body, config.maxBufferedFileSizeBytes)
     if (buffered === null) {
-      return textResponse(
+      return errorResponse(
+        "too_large",
         `Invalid file size: more than ${config.maxBufferedFileSizeBytes}, ` +
           `max size without a Content-Length header = ${config.maxBufferedFileSizeBytes}. ` +
           `Send a Content-Length header (curl --upload-file and --data-binary @file do) ` +
-          `to upload up to ${config.maxFileSizeBytes}\n`,
+          `to upload up to ${config.maxFileSizeBytes}`,
         413,
       )
     }
-    if (buffered.byteLength < 1) return emptyBody()
+    if (buffered.byteLength < 1) return emptyBody(url)
     return await store(request, pathName, buffered, contentType, url, config)
   }
 
@@ -55,7 +56,11 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
     return await store(request, pathName, readable, contentType, url, config)
   } catch (error) {
     if (isLengthMismatch(error)) {
-      return textResponse(`Upload incomplete: the body did not match its Content-Length of ${declared}\n`, 400)
+      return errorResponse(
+        "length_mismatch",
+        `Upload incomplete: the body did not match its Content-Length of ${declared}`,
+        400,
+      )
     }
     // Either the client went away or R2 failed, and the two cannot be told
     // apart reliably here. Say what is known and let it surface as a 500, so a
@@ -79,9 +84,10 @@ async function handleFormUpload(
 ): Promise<Response> {
   const limit = config.maxBufferedFileSizeBytes
   const tooLarge = () =>
-    textResponse(
+    errorResponse(
+      "too_large",
       `Invalid file size: form uploads (curl -F) are limited to ${limit}. ` +
-        `Upload the file itself (curl --upload-file) for up to ${config.maxFileSizeBytes}\n`,
+        `Upload the file itself (curl --upload-file) for up to ${config.maxFileSizeBytes}`,
       413,
     )
 
@@ -100,12 +106,20 @@ async function handleFormUpload(
       }
     }
   } catch {
-    return textResponse("Could not read the form. Upload the file itself instead: curl --upload-file\n", 400)
+    return errorResponse(
+      "invalid_form",
+      `Could not read the form. Send the file as the request body instead: PUT ${url.origin}/<file name>`,
+      400,
+    )
   }
   if (!file) {
-    return textResponse("No file in the form. Send one with: curl -F file=@name, or curl --upload-file name\n", 400)
+    return errorResponse(
+      "no_file_in_form",
+      `No file in the form. Add a file field (curl -F file=@name), or send the file as the request body: PUT ${url.origin}/<file name>`,
+      400,
+    )
   }
-  if (file.size < 1) return emptyBody()
+  if (file.size < 1) return emptyBody(url)
   if (file.size > limit) return tooLarge()
 
   const filename = pathName || encodeURIComponent(file.name)
@@ -117,15 +131,19 @@ async function handleFormUpload(
 /** Null if the name can be stored, otherwise the response explaining why not. */
 function validateFilename(filename: string, url: URL): Response | null {
   if (filename.length < 1) {
-    return textResponse(`No filename, pass a filename into the url, like: ${url.origin}/filename.txt \n`, 400)
+    return errorResponse("no_filename", `No filename: put one in the URL, like ${url.origin}/filename.txt`, 400)
   }
   // Counted decoded, so a name in a non-Latin script gets as many characters
   // as an ASCII one; the encoded form has its own, storage driven, limit.
   if (decodeFilename(filename).length > MAX_FILENAME_LENGTH || filename.length > MAX_ENCODED_FILENAME_LENGTH) {
-    return textResponse(`Filename too long, max ${MAX_FILENAME_LENGTH} characters\n`, 400)
+    return errorResponse("filename_too_long", `Filename too long, max ${MAX_FILENAME_LENGTH} characters`, 400)
   }
   if (!isSafeFilename(filename)) {
-    return textResponse("Invalid filename\n", 400)
+    return errorResponse(
+      "invalid_filename",
+      "Invalid filename: it cannot contain control characters, or empty, '.' or '..' path segments",
+      400,
+    )
   }
   return null
 }
@@ -150,6 +168,7 @@ async function store(
   })
 
   const link = `${url.origin}/${key}`
+  const expires = new Date(expiresAt * 1000).toISOString()
   if (wantsJson(request)) {
     return jsonResponse({
       url: link,
@@ -157,18 +176,24 @@ async function store(
       name,
       size: object.size,
       content_type: contentType ?? "application/octet-stream",
-      expires_at: new Date(expiresAt * 1000).toISOString(),
+      md5: object.checksums.md5 ? hex(object.checksums.md5) : undefined,
+      expires_at: expires,
       expires_in_seconds: config.fileTtlSeconds,
     })
   }
-  return textResponse(`${link}\n`)
+  return textResponse(`${link}\n`, 200, { "X-Expires-At": expires, "Access-Control-Expose-Headers": "X-Expires-At" })
 }
 
-function emptyBody(): Response {
-  return textResponse(
-    "Empty body, there is nothing to upload. Send the file as the request body: curl --upload-file ./file.txt <url>\n",
+function emptyBody(url: URL): Response {
+  return errorResponse(
+    "empty_body",
+    `Empty body, there is nothing to upload. Send the file's bytes as the request body: PUT ${url.origin}/<file name>`,
     400,
   )
+}
+
+function hex(bytes: ArrayBuffer): string {
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */

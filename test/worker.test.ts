@@ -215,19 +215,84 @@ describe("scripts and agents", () => {
     const json = { accept: "application/json" }
     const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers: json }))
     expect(missing.status).toBe(404)
+    expect(missing.headers.get("x-error-code")).toBe("not_found")
     expect(await missing.json()).toEqual({
       error: "Not found: the link is wrong, or the file has expired. Files are deleted 24 hours after upload.",
+      code: "not_found",
       status: 404,
     })
 
     const noName = await call(new Request("https://transfr.test/", { method: "PUT", body: "data", headers: json }))
     expect(noName.status).toBe(400)
-    expect(((await noName.json()) as { error: string }).error).toContain("No filename")
+    expect(await noName.json()).toMatchObject({ code: "no_filename", error: expect.stringContaining("No filename") })
 
     const method = await call(new Request("https://transfr.test/x", { method: "DELETE", headers: json }))
     expect(method.status).toBe(405)
     expect(method.headers.get("allow")).toBe("GET, HEAD, POST, PUT, OPTIONS")
-    expect(((await method.json()) as { status: number }).status).toBe(405)
+    expect(await method.json()).toMatchObject({ code: "method_not_allowed", status: 405 })
+  })
+
+  it("gives every error a stable code, as text or JSON", async () => {
+    const put = (path: string, body: BodyInit | null, headers: Record<string, string> = {}, env = {}) =>
+      call(new Request(`https://transfr.test${path}`, { method: "PUT", body, headers }), env)
+    const form = new FormData()
+    form.append("note", "no file here")
+    const cases: [string, Promise<Response>][] = [
+      ["no_filename", put("/", "data")],
+      ["empty_body", put("/empty.txt", "")],
+      ["invalid_filename", put("/a//b.txt", "data")],
+      ["filename_too_long", put(`/${"a".repeat(257)}`, "data")],
+      ["too_large", put("/big.txt", "x".repeat(11), {}, { R2_MAX_FILE_SIZE_BYTES: "10" })],
+      ["length_mismatch", put("/short.txt", "small", { "content-length": "10" })],
+      ["no_file_in_form", put("/form.txt", form)],
+      ["not_found", call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt"))],
+      ["method_not_allowed", call(new Request("https://transfr.test/x", { method: "PATCH" }))],
+      ["misconfigured", call(new Request("https://transfr.test/"), { R2_DEFAULT_FILE_TTL: "soon" })],
+    ]
+    for (const [code, pending] of cases) {
+      const response = await pending
+      expect(response.status, code).toBeGreaterThanOrEqual(400)
+      expect(response.headers.get("x-error-code"), code).toBe(code)
+      expect(response.headers.get("content-type"), code).toBe("text/plain; charset=utf-8")
+      // One line that ends in a newline, like every other reply.
+      expect(await response.text(), code).toMatch(/^[^\n]+\n$/)
+    }
+  })
+
+  it("names the range error too", async () => {
+    const { url } = await upload("/file.txt", "0123456789")
+    const response = await call(new Request(url, { headers: { range: "bytes=50-", accept: "application/json" } }))
+    expect(response.status).toBe(416)
+    expect(response.headers.get("content-range")).toBe("bytes */10")
+    expect(await response.json()).toMatchObject({ code: "range_not_satisfiable", status: 416 })
+  })
+
+  it("says when a file expires on the upload reply and on every download", async () => {
+    const before = Date.now()
+    const { response, url } = await upload("/file.txt", "Hello, world!")
+    const expires = response.headers.get("x-expires-at") ?? ""
+    expect(Date.parse(expires)).toBeGreaterThan(before + 86_000_000)
+    expect(Date.parse(expires)).toBeLessThanOrEqual(Date.now() + 86_400_000)
+
+    for (const method of ["GET", "HEAD"]) {
+      const download = await call(new Request(url, { method, headers: { "user-agent": CURL_UA } }))
+      expect(download.headers.get("x-expires-at"), method).toBe(expires)
+      expect(download.headers.get("access-control-expose-headers"), method).toContain("X-Expires-At")
+    }
+  })
+
+  it("returns the MD5 of what it stored, matching the ETag", async () => {
+    const response = await call(
+      new Request("https://transfr.test/hello.txt", {
+        method: "PUT",
+        body: "Hello, world!",
+        headers: { accept: "application/json" },
+      }),
+    )
+    const body = (await response.json()) as { md5: string; url: string }
+    expect(body.md5).toBe("6cd3556deb0da54bca060b4c39479839")
+    const download = await call(new Request(body.url, { headers: { "user-agent": CURL_UA } }))
+    expect(download.headers.get("etag")).toBe(`"${body.md5}"`)
   })
 
   it("works out the content type from the file name when the client sends none", async () => {
