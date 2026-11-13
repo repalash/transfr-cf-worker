@@ -22,6 +22,15 @@ describe("keys", () => {
     expect(isExpired("22e3-63401de2/file.txt", 0x63401de2 * 1000)).toBe(true)
   })
 
+  it("reads links from the R2 worker before November 2026, expiry first, and never expires them", () => {
+    // A real link a customer was given: expiry 0x6af77f4d, then two random digits.
+    expect(parseExpiry("6af77f4d-a2/model.glb")).toBe(0x6af77f4d)
+    expect(isExpired("6af77f4d-a2/model.glb", (0x6af77f4d + 86_400 * 6) * 1000)).toBe(false)
+    expect(isExpired("63401de2-7/file.txt", Date.now())).toBe(false)
+    // Neither side a timestamp: no expiry at all, rather than a guess.
+    expect(parseExpiry("abc-def/file.txt")).toBeNull()
+  })
+
   it("does not repeat keys", () => {
     const keys = new Set(Array.from({ length: 200 }, () => createObjectKey("f", 60).key))
     expect(keys.size).toBe(200)
