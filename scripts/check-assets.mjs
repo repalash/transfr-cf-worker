@@ -14,7 +14,10 @@ for (const page of readdirSync("html").filter((name) => name.endsWith(".html")))
   for (const [tag] of html.matchAll(/<(?:script|link)\b[^>]*>/g)) {
     const url = /\b(?:src|href)="([^"]+)"/.exec(tag)?.[1]
     if (!url) continue
-    if (!url.startsWith("/assets/")) {
+    // Links that are not files to load: the canonical address, the text guide.
+    const rel = /\brel="([^"]+)"/.exec(tag)?.[1]
+    if (rel === "canonical" || rel === "alternate") continue
+    if (!url.startsWith("/assets/") && url !== "/favicon.ico") {
       failures.push(`${page}: ${url} is not served from /assets/`)
       continue
     }
@@ -28,6 +31,11 @@ for (const page of readdirSync("html").filter((name) => name.endsWith(".html")))
       if (actual !== integrity[2]) failures.push(`${page}: integrity of ${url} should be ${integrity[1]}-${actual}`)
     }
   }
+}
+
+// Built into absolute URLs in src/pages.ts, for share previews.
+for (const image of ["public/assets/og.png", "public/assets/apple-touch-icon.png"]) {
+  if (!existsSync(image)) failures.push(`${image} is missing: the share preview tags point at it`)
 }
 
 const stylesheet = "public/assets/style.css"

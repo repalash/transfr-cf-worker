@@ -9,6 +9,7 @@
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"deploy": "wrangler deploy",
+		"build": "wrangler deploy --dry-run --outdir dist",
 		"test": "vitest run && node scripts/check-assets.mjs",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"

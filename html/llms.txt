@@ -1,0 +1,77 @@
+# transfr.one
+
+Temporary file transfer over plain HTTP. Upload a file with one request, get a
+link back, share the link. Files are deleted after {{TTL_LABEL}}. No account, no
+API key, no client to install.
+
+## Upload
+
+PUT or POST the file's bytes to {{ORIGIN}}/<file name>. The response body is the
+link, as plain text on one line.
+
+    curl --upload-file ./report.pdf {{ORIGIN}}/report.pdf
+    {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf
+
+These work too:
+
+    curl --data-binary @report.pdf {{ORIGIN}}/report.pdf
+    curl -F file=@report.pdf {{ORIGIN}}/
+    echo "some text" | curl --data-binary @- {{ORIGIN}}/note.txt
+
+    # Python
+    link = requests.put("{{ORIGIN}}/report.pdf", data=open("report.pdf", "rb")).text.strip()
+
+    # JavaScript
+    const link = (await (await fetch("{{ORIGIN}}/report.pdf", { method: "PUT", body: file })).text()).trim()
+
+Send "Accept: application/json" to get JSON instead of the bare link:
+
+    curl -H "Accept: application/json" --upload-file ./report.pdf {{ORIGIN}}/report.pdf
+    {"url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf","raw_url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf?raw=1","name":"report.pdf","size":48213,"content_type":"application/pdf","expires_at":"2026-01-01T12:00:00.000Z","expires_in_seconds":86400}
+
+## Download
+
+    curl -L {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf -o report.pdf
+
+A GET returns the file's bytes, and supports Range requests. One exception: a
+web browser that opens the link gets an HTML page with a download button
+instead. Add ?raw=1 to the link (the "raw_url" above) to always get the bytes.
+
+## Encrypt (optional)
+
+The server never needs to see the contents. Encrypt before uploading:
+
+    gpg -c -o- report.pdf | curl --data-binary @- {{ORIGIN}}/report.pdf.pgp
+    curl -L <link> | gpg -d -o report.pdf
+
+A file whose name ends in .pgp, .gpg or .asc can also be decrypted in the
+browser, on the page its link opens.
+
+## Limits
+
+- Size: up to {{MAX_FILE_SIZE_LABEL}} ({{MAX_FILE_SIZE_BYTES}} bytes). Form uploads (curl -F) and
+  uploads sent without a Content-Length: up to {{MAX_BUFFERED_FILE_SIZE_LABEL}}.
+- Lifetime: {{TTL_LABEL}}. After that the link answers 404. A file cannot be
+  deleted earlier, replaced or listed.
+- The link is the only protection. It cannot be guessed, and anyone who has it
+  can download the file. Treat it like a password.
+- File names: up to 256 characters. The name becomes part of the link.
+
+## Errors
+
+Errors are one line of plain text that says what to change (JSON, as
+{"error": "...", "status": 400}, with "Accept: application/json").
+
+- 400  no file name in the URL, an empty body, or a name that cannot be used
+- 404  the link is wrong or the file has expired
+- 405  only GET, HEAD, PUT, POST and OPTIONS are supported
+- 413  the file is larger than the limit
+
+## For AI agents
+
+- Uploading needs a tool that can send PUT or POST, such as curl in a shell. A
+  tool that can only fetch pages can download a file but not upload one.
+- To share a file with a person, give them the link. To hand a file to another
+  program, give it the raw_url.
+- This page is also served at {{ORIGIN}}/llms.txt. The source is at
+  https://github.com/repalash/transfr-cf-worker

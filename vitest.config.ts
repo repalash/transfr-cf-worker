@@ -4,15 +4,15 @@ import { defineConfig } from "vitest/config"
 
 /**
  * Mirrors the `Text` module rule from wrangler.toml so that
- * `import page from "../html/page.html"` resolves to the file's contents here
- * too.
+ * `import page from "../html/page.html"` (and the .txt guide next to the pages)
+ * resolves to the file's contents here too.
  */
 const htmlAsText = {
   name: "html-as-text",
   enforce: "pre" as const,
   load(id: string) {
     const file = id.split("?")[0]
-    if (!file.endsWith(".html")) return null
+    if (!file.endsWith(".html") && !/\/html\/[^/]+\.txt$/.test(file)) return null
     return `export default ${JSON.stringify(readFileSync(file, "utf8"))};`
   },
 }

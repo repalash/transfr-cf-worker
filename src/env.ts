@@ -21,6 +21,11 @@ export interface Env {
    * HTML landing page, even for browsers (used for hotlinking/embedding).
    */
   RAW_ONLY_HOSTS?: string
+  /**
+   * Origin search engines should index, e.g. `https://transfr.one`. Unset, each
+   * host the worker answers on is its own canonical address.
+   */
+  CANONICAL_ORIGIN?: string
   /** R2 bucket bindings (and anything else Cloudflare injects). */
   [binding: string]: unknown
 }

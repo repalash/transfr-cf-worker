@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { escapeHtml, isShellPlain, jsonForScript, shellSafeName, stringLiteral } from "../src/escape"
 import { formatBytes, formatDuration, formatRelativeTo } from "../src/format"
 import { createObjectKey, decodeFilename, filenameFromKey, isExpired, parseExpiry } from "../src/keys"
-import { contentDisposition, isInlineSafe, sanitizeContentType } from "../src/mime"
+import { contentDisposition, contentTypeFor, isInlineSafe, sanitizeContentType } from "../src/mime"
 import { render } from "../src/templates"
 
 describe("keys", () => {
@@ -142,6 +142,32 @@ describe("mime", () => {
     expect(contentDisposition('a";x="y', "text/html")).toBe(
       `attachment; filename="a_;x=_y"; filename*=UTF-8''a%22%3Bx%3D%22y`,
     )
+  })
+})
+
+describe("content type for an upload", () => {
+  it("keeps a real type and only guesses over a missing or placeholder one", () => {
+    expect(contentTypeFor("image/png", "notes.txt")).toBe("image/png")
+    expect(contentTypeFor(null, "notes.txt")).toBe("text/plain; charset=utf-8")
+    expect(contentTypeFor("application/octet-stream", "a.PNG")).toBe("image/png")
+    expect(contentTypeFor("Application/X-WWW-Form-Urlencoded; charset=utf-8", "a.csv")).toBe("text/csv; charset=utf-8")
+    expect(contentTypeFor("not a type", "a.pdf")).toBe("application/pdf")
+  })
+
+  it("leaves an unknown or missing extension alone", () => {
+    expect(contentTypeFor(null, "Makefile")).toBeUndefined()
+    expect(contentTypeFor(null, "archive.xyz")).toBeUndefined()
+    expect(contentTypeFor(null, "trailing.")).toBeUndefined()
+    expect(contentTypeFor("application/octet-stream", "blob")).toBe("application/octet-stream")
+    // Only the last extension counts, and never a property of Object.
+    expect(contentTypeFor(null, "notes.txt.pgp")).toBe("application/pgp-encrypted")
+    expect(contentTypeFor(null, "x.constructor")).toBeUndefined()
+  })
+
+  it("never guesses a type that would be shown in place and could run script", () => {
+    for (const name of ["page.html", "drawing.svg", "script.js"]) {
+      expect(isInlineSafe(contentTypeFor(null, name) ?? ""), name).toBe(false)
+    }
   })
 })
 

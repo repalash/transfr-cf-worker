@@ -22,6 +22,9 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
+      # Bundles the worker exactly as a deploy would, without deploying: catches
+      # what the tests cannot, such as an import the bundler rejects.
+      - run: npm run build
 
   # Deploys main to Cloudflare once the tests pass. Never runs for pull requests.
   deploy:

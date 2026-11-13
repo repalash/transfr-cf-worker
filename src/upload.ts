@@ -1,7 +1,7 @@
 import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
-import { textResponse } from "./http"
+import { jsonResponse, textResponse, wantsJson } from "./http"
 import { createObjectKey, decodeFilename } from "./keys"
-import { sanitizeContentType } from "./mime"
+import { contentTypeFor } from "./mime"
 
 /** A multipart form adds boundaries and part headers around the file. */
 const FORM_OVERHEAD_BYTES = 64 * 1024
@@ -41,7 +41,7 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
       )
     }
     if (buffered.byteLength < 1) return emptyBody()
-    return await store(pathName, buffered, contentType, url, config)
+    return await store(request, pathName, buffered, contentType, url, config)
   }
 
   // FixedLengthStream gives R2 the length, and errors (failing the put) if the
@@ -52,7 +52,7 @@ export async function handleUpload(request: Request, url: URL, config: Config): 
     bodyError = error
   })
   try {
-    return await store(pathName, readable, contentType, url, config)
+    return await store(request, pathName, readable, contentType, url, config)
   } catch (error) {
     if (isLengthMismatch(error)) {
       return textResponse(`Upload incomplete: the body did not match its Content-Length of ${declared}\n`, 400)
@@ -111,7 +111,7 @@ async function handleFormUpload(
   const filename = pathName || encodeURIComponent(file.name)
   const invalid = validateFilename(filename, url)
   if (invalid) return invalid
-  return await store(filename, new Uint8Array(await file.arrayBuffer()), file.type, url, config)
+  return await store(request, filename, new Uint8Array(await file.arrayBuffer()), file.type, url, config)
 }
 
 /** Null if the name can be stored, otherwise the response explaining why not. */
@@ -131,26 +131,44 @@ function validateFilename(filename: string, url: URL): Response | null {
 }
 
 async function store(
+  request: Request,
   filename: string,
   body: ReadableStream | Uint8Array,
-  contentType: string | null,
+  sentContentType: string | null,
   url: URL,
   config: Config,
 ): Promise<Response> {
   const { key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds)
+  const name = decodeFilename(filename)
+  const contentType = contentTypeFor(sentContentType, name)
 
   // Awaited rather than deferred with waitUntil: the URL is returned to the
   // client, so the object has to be readable by the time it is.
-  await config.bucket.put(key, body, {
-    httpMetadata: { contentType: sanitizeContentType(contentType) },
+  const object = await config.bucket.put(key, body, {
+    httpMetadata: { contentType },
     customMetadata: { expiresAt: String(expiresAt) },
   })
 
-  return textResponse(`${url.origin}/${key}\n`)
+  const link = `${url.origin}/${key}`
+  if (wantsJson(request)) {
+    return jsonResponse({
+      url: link,
+      raw_url: `${link}?raw=1`,
+      name,
+      size: object.size,
+      content_type: contentType ?? "application/octet-stream",
+      expires_at: new Date(expiresAt * 1000).toISOString(),
+      expires_in_seconds: config.fileTtlSeconds,
+    })
+  }
+  return textResponse(`${link}\n`)
 }
 
 function emptyBody(): Response {
-  return textResponse("Empty body, there is nothing to upload\n", 400)
+  return textResponse(
+    "Empty body, there is nothing to upload. Send the file as the request body: curl --upload-file ./file.txt <url>\n",
+    400,
+  )
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */
