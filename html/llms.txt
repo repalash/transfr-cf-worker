@@ -10,7 +10,7 @@ PUT or POST the file's bytes to {{ORIGIN}}/<file name>. The reply is status 200
 and its body is the link, as plain text on one line.
 
     curl --upload-file ./report.pdf {{ORIGIN}}/report.pdf
-    {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf
+    {{ORIGIN}}/68d0f3a2-3f/report.pdf
 
 Every upload gets a new link, even with a name used before. Percent-encode
 spaces and special characters in the name. With curl, ending the URL in "/"
@@ -35,7 +35,7 @@ list other types too, JSON must rank above text/plain and */*). An example
 reply (the values are made up):
 
     curl -H "Accept: application/json" --upload-file ./report.pdf {{ORIGIN}}/report.pdf
-    {"url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf","raw_url":"{{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf?raw=1","name":"report.pdf","size":48213,"content_type":"application/pdf","md5":"9e107d9d372bb6826bd81d3542a419d6","expires_at":"2026-01-01T12:00:00.000Z","expires_in_seconds":86400}
+    {"url":"{{ORIGIN}}/68d0f3a2-3f/report.pdf","raw_url":"{{ORIGIN}}/68d0f3a2-3f/report.pdf?raw=1","name":"report.pdf","size":48213,"content_type":"application/pdf","md5":"9e107d9d372bb6826bd81d3542a419d6","expires_at":"2026-01-01T12:00:00.000Z","expires_in_seconds":86400}
 
 - url: for people. raw_url: for programs (see Download).
 - content_type: the Content-Type header you sent. If you sent none, or a
@@ -49,7 +49,7 @@ Without JSON, the same expiry time is in the reply's X-Expires-At header.
 
 ## Download
 
-    curl -L {{ORIGIN}}/3f1c9b27d4e0-68d0f3a2/report.pdf -o report.pdf
+    curl -L {{ORIGIN}}/68d0f3a2-3f/report.pdf -o report.pdf
 
 A GET returns the file's bytes, and supports Range requests. One exception: a
 request that asks for a web page gets an HTML page with a download button
@@ -80,8 +80,8 @@ browser, on the page its link opens.
   uploads sent without a Content-Length: up to {{MAX_BUFFERED_FILE_SIZE_LABEL}}.
 - Lifetime: {{TTL_LABEL}}. After that the link answers 404. A file cannot be
   deleted earlier, replaced or listed.
-- The link is the only protection. It cannot be guessed, and anyone who has it
-  can download the file. Treat it like a password.
+- Anyone who has the link can download the file. Links are short and can be
+  guessed: encrypt anything private (see Encrypt).
 - File names: up to 256 characters, and may contain "/". Not allowed: control
   characters, and empty, "." or ".." path segments. The name becomes part of
   the link.

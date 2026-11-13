@@ -203,7 +203,7 @@ describe("scripts and agents", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
     const body = (await response.json()) as Record<string, unknown>
-    expect(body.url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/report%20v2\.json$/)
+    expect(body.url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/report%20v2\.json$/)
     expect(body).toMatchObject({
       raw_url: `${body.url}?raw=1`,
       name: "report v2.json",
@@ -219,7 +219,7 @@ describe("scripts and agents", () => {
     const headers = { accept: "application/json, text/plain, */*", "user-agent": "axios/1.7.2" }
     const response = await call(new Request("https://transfr.test/a.txt", { method: "PUT", body: "data", headers }))
     expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")
-    expect(await response.text()).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/a\.txt\n$/)
+    expect(await response.text()).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/a\.txt\n$/)
 
     const missing = await call(new Request("https://transfr.test/3f1c9b27d4e0-ffffffff/nope.txt", { headers }))
     expect(missing.headers.get("content-type")).toBe("text/plain; charset=utf-8")
@@ -367,7 +367,7 @@ describe("upload", () => {
   it("stores the file and returns its URL", async () => {
     const { response, url } = await upload("/file.txt", "Hello, world!", { "content-type": "text/plain" })
     expect(response.status).toBe(200)
-    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{12}-[0-9a-f]{8}\/file\.txt$/)
+    expect(url).toMatch(/^https:\/\/transfr\.test\/[0-9a-f]{8}-[0-9a-f]{1,2}\/file\.txt$/)
   })
 
   it("makes the file readable as soon as the URL is returned", async () => {
