@@ -44,12 +44,20 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
   if (declared !== null && declared > config.maxFileSizeBytes) {
     return errorResponse("too_large", `Invalid size: ${declared}, max size of one request = ${config.maxFileSizeBytes}`, 413)
   }
-  const forward = (name: string, action: string, params: Record<string, string | number>): Promise<Response> => {
+  const forward = (
+    name: string,
+    action: string,
+    params: Record<string, string | number>,
+    withBody = true,
+  ): Promise<Response> => {
     const internal = new URL(`https://channel/${kind}/${action}`)
     for (const [key, value] of Object.entries(params)) internal.searchParams.set(key, String(value))
     // The original request goes along as it is: method, headers and a body
     // that is streamed, not buffered.
-    return channels.get(channels.idFromName(name)).fetch(new Request(internal, request))
+    const forwarded = withBody
+      ? new Request(internal, request)
+      : new Request(internal, { method: request.method, headers: request.headers })
+    return channels.get(channels.idFromName(name)).fetch(forwarded)
   }
 
   if (kind === "pipe") {
@@ -61,7 +69,12 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
       })
     }
     const name = decodeFilename(rest).split("/").pop() ?? rest
-    return await forward(`pipe:${rest}`, isWrite ? "send" : "receive", { name, wait: config.pipeWaitSeconds })
+    // A body without a declared length is held to the same limit as it arrives.
+    return await forward(`pipe:${rest}`, isWrite ? "send" : "receive", {
+      name,
+      wait: config.pipeWaitSeconds,
+      max: config.maxFileSizeBytes,
+    })
   }
 
   const segments = rest.split("/")
@@ -79,8 +92,8 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
     const invalid = validateFilename(first, url, `${url.origin}/stream/<name>`)
     if (invalid) return invalid
     // A stream starts empty. Data sent along with the create request would
-    // otherwise vanish without a word.
-    if (declared !== null && declared > 0) {
+    // otherwise vanish without a word, also when its length was not declared.
+    if (declared !== null ? declared > 0 : request.body !== null && (await carriesData(request.body))) {
       return errorResponse(
         "body_not_allowed",
         "A new stream starts empty: create it with an empty POST, then send data to the write link it replies with",
@@ -94,7 +107,7 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
       link: `${url.origin}/stream/${id}/${first}`,
       idle: config.streamIdleTtlSeconds,
       ttl: config.streamMaxTtlSeconds,
-    })
+    }, false)
   }
 
   // /stream/<id>/<name>: an existing one.
@@ -127,7 +140,36 @@ export async function handleChannel(request: Request, url: URL, env: Env, config
     key,
     ...searchParams(url, ["close"]),
     max: config.streamMaxBytes,
+    requestMax: config.maxFileSizeBytes,
   })
+}
+
+/** How long a create request's undeclared body is given to show whether it holds anything. */
+const CREATE_BODY_WAIT_MS = 1000
+
+/**
+ * Whether a body of undeclared length has any data in it. One that is still
+ * open after a moment counts: something is being sent with the request.
+ */
+async function carriesData(body: ReadableStream<Uint8Array>): Promise<boolean> {
+  const reader = body.getReader()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const waitedLongEnough = new Promise<"open">((resolve) => {
+    timer = setTimeout(() => resolve("open"), CREATE_BODY_WAIT_MS)
+  })
+  try {
+    for (;;) {
+      const result = await Promise.race([reader.read(), waitedLongEnough])
+      if (result === "open") return true
+      if (result.done) return false
+      if (result.value.byteLength > 0) return true
+    }
+  } catch {
+    return false // the client went away; there is no one to answer either way
+  } finally {
+    clearTimeout(timer)
+    void reader.cancel().catch(() => {})
+  }
 }
 
 /** The named query parameters that are present, including ones with no value (`?follow`). */

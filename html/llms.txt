@@ -147,6 +147,8 @@ Read, with the read link:
   when it is created.
 - A stream holds up to {{STREAM_MAX_LABEL}}, and one write carries up to {{MAX_FILE_SIZE_LABEL}}. Past
   the limit a write gets 413 stream_full, after adding what still fit.
+  One long upload that passes {{MAX_FILE_SIZE_LABEL}} gets 413 too_large the same way:
+  what fitted is kept, so start another upload for the rest.
 - A stream is deleted {{STREAM_IDLE_LABEL}} after its last write, and {{STREAM_MAX_TTL_LABEL}} after it was
   created at the latest. Closing it counts as a write. X-Expires-At on every
   reply says when.

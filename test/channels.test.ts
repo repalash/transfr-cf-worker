@@ -326,6 +326,14 @@ describe("stream", () => {
     expect(response.headers.get("x-error-code")).toBe("body_not_allowed")
     expect(await response.text()).toContain("send data to the write link")
 
+    // The same when the body's length is not declared; an empty one is fine.
+    const undeclared = await call(new Request(`${ORIGIN}/stream/build.log`, { method: "POST", body: chunked("first line") }))
+    expect(undeclared.status).toBe(400)
+    expect(undeclared.headers.get("x-error-code")).toBe("body_not_allowed")
+    const empty = await call(new Request(`${ORIGIN}/stream/build.log`, { method: "POST", body: chunked() }))
+    expect(empty.status).toBe(200)
+    expect(await empty.text()).toMatch(/^write: /m)
+
     const noName = await call(new Request(`${ORIGIN}/stream/`, { method: "POST" }))
     expect(noName.headers.get("x-error-code")).toBe("no_filename")
     expect(await noName.text()).toContain("like https://transfr.test/stream/<name>")
@@ -434,6 +442,23 @@ describe("stream", () => {
     const started = Date.now()
     expect(await brief.text()).toBe("one\n")
     expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+
+    // The time limit also holds for a reader that is still behind the writer.
+    const big = await createStream("big.bin")
+    const total = 24 * 1024 * 1024
+    for (let sentSoFar = 0; sentSoFar < total; sentSoFar += 4 * 1024 * 1024) {
+      expect((await append(big.write, randomBytes(4 * 1024 * 1024))).status).toBe(200)
+    }
+    const slow = await get(`${big.read}?follow`, {}, { STREAM_FOLLOW_SECONDS: "1" })
+    const slowReader = slow.body!.getReader()
+    let got = (await slowReader.read()).value?.byteLength ?? 0
+    await sleep(1300)
+    for (;;) {
+      const { done, value } = await slowReader.read()
+      if (done) break
+      got += value.byteLength
+    }
+    expect(got).toBeLessThan(total)
 
     const abandoned = await get(`${read}?follow`)
     const reader = abandoned.body!.getReader()
@@ -586,6 +611,30 @@ describe("documentation and limits shared with files", () => {
       expect(response.status, path).toBe(413)
       expect(response.headers.get("x-error-code")).toBe("too_large")
     }
+  })
+
+  it("holds a body of undeclared length to the same limit as it arrives", async () => {
+    const small = { R2_MAX_FILE_SIZE_BYTES: "10" }
+
+    const path = pipeName()
+    const sending = put(path, chunked("12345678", "9012345"), {}, small)
+    const received = await get(path, {}, small)
+    // The receiver's download breaks off; it is not handed a short file as if complete.
+    await expect(received.text()).rejects.toThrow()
+    const sent = await sending
+    expect(sent.status).toBe(413)
+    expect(sent.headers.get("x-error-code")).toBe("too_large")
+    expect(await sent.text()).toContain("one send can carry at most 10 bytes")
+
+    const { read, write } = await createStream("limited.log", small)
+    const response = await append(write, chunked("12345678", "9012345"), {}, small)
+    expect(response.status).toBe(413)
+    expect(response.headers.get("x-error-code")).toBe("too_large")
+    expect(await response.text()).toContain("One request can add at most 10 bytes. 10 bytes of this request were added")
+    // What fitted is kept, and the stream takes further requests.
+    expect(await (await get(read)).text()).toBe("1234567890")
+    expect((await append(write, chunked("ab"), {}, small)).status).toBe(200)
+    expect(await (await get(read)).text()).toBe("1234567890ab")
   })
 
   it("explains pipes and streams in the text guide, with the configured limits", async () => {

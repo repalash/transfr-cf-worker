@@ -68,6 +68,7 @@ export class Channel extends DurableObject<Env> {
         name,
         contentType: contentTypeFor(request.headers.get("content-type"), name) ?? "application/octet-stream",
         length: contentLength(request),
+        maxBytes: number(url, "max"),
         resolve,
         timer,
       }
@@ -128,8 +129,16 @@ export class Channel extends DurableObject<Env> {
     const { readable, writable } =
       sender.length !== null ? new FixedLengthStream(sender.length) : new IdentityTransformStream()
     let sent = 0
+    let tooLarge = false
     const counter = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
+        // A declared length was checked before the pipe was joined; a body
+        // without one is measured as it goes by.
+        if (sent + chunk.byteLength > sender.maxBytes) {
+          tooLarge = true
+          controller.error(new Error("the body is larger than one request may be"))
+          return
+        }
         sent += chunk.byteLength
         controller.enqueue(chunk)
       },
@@ -148,7 +157,13 @@ export class Channel extends DurableObject<Env> {
         () => sender.resolve(textResponse(`Sent ${sent} bytes\n`)),
         () =>
           sender.resolve(
-            errorResponse("pipe_broken", `The transfer stopped after ${sent} bytes: one side disconnected`, 502),
+            tooLarge
+              ? errorResponse(
+                  "too_large",
+                  `The transfer was stopped after ${sent} bytes: one send can carry at most ${sender.maxBytes} bytes`,
+                  413,
+                )
+              : errorResponse("pipe_broken", `The transfer stopped after ${sent} bytes: one side disconnected`, 502),
           ),
       )
   }
@@ -212,6 +227,9 @@ export class Channel extends DurableObject<Env> {
 
     const close = url.searchParams.has("close")
     const maxBytes = number(url, "max")
+    // A declared length was checked by the worker; a body without one is cut
+    // off here once it has carried as much as one request may.
+    const requestMax = number(url, "requestMax")
     let appended = 0
     if (request.body) {
       // The body arrives in small network chunks. They are gathered for a
@@ -243,22 +261,38 @@ export class Channel extends DurableObject<Env> {
           if (gatheredBytes > 0) flush()
           return errorResponse("upload_interrupted", `The upload was cut off. ${appended} bytes were added.`, 400)
         }
-        let problem: WriteProblem | null = null
+        let problem: WriteProblem | "request_too_large" | null = null
         if (result === null) {
           // Nothing more arrived for a while: store what there is.
           problem = flush()
         } else if (result.done) {
           break
         } else {
-          gathered.push(result.value)
-          gatheredBytes += result.value.byteLength
-          next = reader.read()
-          if (gatheredBytes >= FLUSH_BYTES) problem = flush()
-          else flushDue ??= new Promise((resolve) => setTimeout(() => resolve(null), FLUSH_AFTER_MS))
+          const room = requestMax - appended - gatheredBytes
+          if (result.value.byteLength > room) {
+            // Keep the part that fits, as with a full stream, then stop.
+            if (room > 0) {
+              gathered.push(result.value.subarray(0, room))
+              gatheredBytes += room
+            }
+            problem = (gatheredBytes > 0 ? flush() : null) ?? "request_too_large"
+          } else {
+            gathered.push(result.value)
+            gatheredBytes += result.value.byteLength
+            next = reader.read()
+            if (gatheredBytes >= FLUSH_BYTES) problem = flush()
+            else flushDue ??= new Promise((resolve) => setTimeout(() => resolve(null), FLUSH_AFTER_MS))
+          }
         }
         if (problem) {
           void reader.cancel().catch(() => {})
-          return writeRefused(problem, appended, maxBytes)
+          return problem === "request_too_large"
+            ? errorResponse(
+                "too_large",
+                `One request can add at most ${requestMax} bytes. ${appended} bytes of this request were added; send the rest in another request.`,
+                413,
+              )
+            : writeRefused(problem, appended, maxBytes)
         }
       }
       if (gatheredBytes > 0) {
@@ -370,6 +404,12 @@ export class Channel extends DurableObject<Env> {
         while (!cancelled) {
           const meta = this.liveMeta()
           const limit = meta ? (end ?? meta.length) : offset
+          // A follower's time is up even if it is still behind the writer.
+          // What is left of a closed stream is finite, so that is sent out.
+          if (end === null && meta && !meta.closed && Date.now() >= deadline) {
+            controller.close()
+            return
+          }
           if (offset < limit) {
             const piece = this.read(offset, limit)
             if (!piece) {
@@ -566,6 +606,8 @@ interface Sender {
   name: string
   contentType: string
   length: number | null
+  /** The most one send may carry. */
+  maxBytes: number
   resolve(response: Response): void
   timer: ReturnType<typeof setTimeout>
 }
