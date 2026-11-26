@@ -85,9 +85,22 @@ async function putInParts(path, file, onProgress) {
   for (let part = 1; part <= started.part_count; part++) {
     const start = (part - 1) * started.part_size;
     const piece = file.slice(start, Math.min(start + started.part_size, file.size));
-    const reply = JSON.parse(await send("PUT", started.upload_url + "&part=" + part, piece, null, (fraction) => {
+    const sendPiece = () => send("PUT", started.upload_url + "&part=" + part, piece, null, (fraction) => {
       onProgress((start + fraction * piece.size) / file.size);
-    }));
+    });
+    // A brief network drop should not throw away the parts already sent:
+    // a part can be sent again under the same number.
+    let text;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        text = await sendPiece();
+        break;
+      } catch (error) {
+        if (attempt >= 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+    const reply = JSON.parse(text);
     parts.push({part: reply.part, etag: reply.etag});
   }
   return send("POST", started.upload_url + "&complete", JSON.stringify({parts}), "application/json", () => {});

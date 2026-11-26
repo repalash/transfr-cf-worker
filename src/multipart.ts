@@ -2,7 +2,7 @@ import type { Config } from "./config"
 import { errorResponse, jsonResponse } from "./http"
 import { createObjectKey, decodeFilename } from "./keys"
 import { contentTypeFor } from "./mime"
-import { emptyBody, parseContentLength, storedReply, validateFilename } from "./upload"
+import { emptyBody, isLengthMismatch, parseContentLength, storedReply, validateFilename } from "./upload"
 
 /**
  * Uploads larger than one request may carry (Cloudflare caps a request body
@@ -109,6 +109,13 @@ async function uploadPart(
     return jsonResponse({ part: uploaded.partNumber, etag: uploaded.etag })
   } catch (error) {
     if (isUnknownUpload(error)) return unknownUpload()
+    if (isLengthMismatch(error)) {
+      return errorResponse(
+        "length_mismatch",
+        `Part incomplete: the body did not match its Content-Length of ${declared}`,
+        400,
+      )
+    }
     console.error("part upload failed", { part, error })
     throw error
   }
@@ -137,19 +144,41 @@ async function complete(
     )
   }
 
+  // The key was free when the upload started, but another upload may have
+  // taken it since; joining now would replace that file.
+  if ((await config.bucket.head(key)) !== null) {
+    return errorResponse(
+      "upload_conflict",
+      "Another file was stored at this address while the upload ran. Start the upload again",
+      409,
+    )
+  }
+
   let object: R2Object
   try {
     object = await config.bucket.resumeMultipartUpload(key, uploadId).complete(parts)
   } catch (error) {
     if (isUnknownUpload(error)) return unknownUpload()
-    return errorResponse(
-      "invalid_parts",
-      "The parts could not be joined: send every part's number and etag, all but the last part_size bytes long",
-      400,
-    )
+    if (isInvalidParts(error)) {
+      return errorResponse(
+        "invalid_parts",
+        "The parts could not be joined: send every part's number and etag, all but the last part_size bytes long",
+        400,
+      )
+    }
+    console.error("joining parts failed", { key, error })
+    throw error
   }
   const expiresAt = Number(object.customMetadata?.expiresAt) || Math.floor(Date.now() / 1000) + config.fileTtlSeconds
   return storedReply(request, url, key, expiresAt, object, object.httpMetadata?.contentType, config)
+}
+
+/**
+ * R2's refusals that are the client's doing: a part it does not have or with
+ * a wrong etag (10025), or parts but the last smaller than 5 MB (10011).
+ */
+function isInvalidParts(error: unknown): boolean {
+  return error instanceof Error && /\((10025|10011)\)|InvalidPart|EntityTooSmall/.test(error.message)
 }
 
 function isUnknownUpload(error: unknown): boolean {

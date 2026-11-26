@@ -119,6 +119,9 @@ describe("large uploads in parts", () => {
     const started = await start("file.bin", 10)
     const noParts = await finish(started, [])
     expect(noParts.headers.get("x-error-code")).toBe("invalid_parts")
+    const wrongEtag = await finish(started, [{ part: 1, etag: "not-a-real-etag" }])
+    expect(wrongEtag.status).toBe(400)
+    expect(wrongEtag.headers.get("x-error-code")).toBe("invalid_parts")
 
     const wrongId = await call(
       new Request(`${ORIGIN}/${started.key}?upload_id=nope&part=1`, { method: "PUT", body: "x", headers: { "content-length": "1" } }),
@@ -127,6 +130,25 @@ describe("large uploads in parts", () => {
 
     const notOurs = await call(new Request(`${ORIGIN}/somefile.txt?upload_id=${started.upload_id}&complete`, { method: "POST", body: "{}" }))
     expect(notOurs.headers.get("x-error-code")).toBe("invalid_upload")
+  })
+
+  it("refuses to finish onto a file stored at the same address meanwhile", async () => {
+    const started = await start("same.bin", 10)
+    const part = (await (await sendPart(started, 1, bytes(10, 3))).json()) as { part: number; etag: string }
+    await (env[env.R2_DEFAULT_NAMESPACE] as R2Bucket).put(started.key, "someone else's file")
+    const done = await finish(started, [part])
+    expect(done.status).toBe(409)
+    expect(done.headers.get("x-error-code")).toBe("upload_conflict")
+    expect(await (await call(new Request(`${ORIGIN}/${started.key}?raw=1`))).text()).toBe("someone else's file")
+  })
+
+  it("answers a part shorter than its Content-Length with length_mismatch", async () => {
+    const started = await start("short.bin", 10)
+    const response = await call(
+      new Request(`${started.upload_url}&part=1`, { method: "PUT", body: "ab", headers: { "content-length": "5" } }),
+    )
+    expect(response.status).toBe(400)
+    expect(response.headers.get("x-error-code")).toBe("length_mismatch")
   })
 
   it("never touches an existing file", async () => {

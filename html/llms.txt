@@ -81,11 +81,11 @@ up in parts that are joined into one file with one link. The web page does
 this by itself. From a script:
 
     # 1. Start: say the name and size. Reply: key, upload_id, part_size, part_count, upload_url
-    curl -X POST -H "Accept: application/json" "{{ORIGIN}}/big.zip?uploads&size=$(wc -c < big.zip)"
+    curl -X POST -H "Accept: application/json" "{{ORIGIN}}/big.zip?uploads&size=$(wc -c < big.zip | tr -d ' ')"
     # 2. Send each part: part_size bytes ({{PART_SIZE_BYTES}}), the last one shorter. Reply: {"part":1,"etag":"..."}
-    split -b {{PART_SIZE_BYTES}} -d big.zip part_
-    curl -T part_00 "<upload_url>&part=1"
-    curl -T part_01 "<upload_url>&part=2"
+    split -b {{PART_SIZE_BYTES}} big.zip part_      # makes part_aa, part_ab, ...
+    curl -T part_aa "<upload_url>&part=1"
+    curl -T part_ab "<upload_url>&part=2"
     # 3. Finish with every part's number and etag. Reply: the link, as for any upload
     curl -X POST "<upload_url>&complete" --data '{"parts":[{"part":1,"etag":"..."},{"part":2,"etag":"..."}]}'
 
@@ -114,6 +114,7 @@ the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status"
        invalid_parts, invalid_upload (large uploads)
 - 411  length_required: a part was sent without a Content-Length
 - 404  not_found: the link is wrong or the file has expired; unknown_upload
+- 409  upload_conflict: start the large upload again
 - 405  method_not_allowed: only GET, HEAD, PUT, POST and OPTIONS are supported
 - 413  too_large: the file is larger than the limit
 - 416  range_not_satisfiable

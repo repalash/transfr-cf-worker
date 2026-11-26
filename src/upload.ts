@@ -242,7 +242,7 @@ async function readAtMost(stream: ReadableStream<Uint8Array>, limit: number): Pr
 }
 
 /** The put fails with this when the body is shorter or longer than its Content-Length. */
-function isLengthMismatch(error: unknown): boolean {
+export function isLengthMismatch(error: unknown): boolean {
   return error instanceof TypeError && error.message.includes("FixedLengthStream")
 }
 
