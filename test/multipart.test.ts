@@ -108,7 +108,9 @@ describe("large uploads in parts", () => {
     const started = await start("file.bin", 6 * MB)
     const oversized = await sendPart(started, 1, bytes(5 * MB + 1, 2))
     expect(oversized.status).toBe(413)
-    // 12 MB in 5 MB parts is at most 3 parts.
+    // 12 MB in 5 MB parts is at most 3 parts, and the third gets only the 2 MB left.
+    expect((await sendPart(started, 3, bytes(2 * MB + 1, 2))).status).toBe(413)
+    expect((await sendPart(started, 3, bytes(2 * MB, 2))).status).toBe(200)
     expect((await sendPart(started, 4, bytes(10, 2))).headers.get("x-error-code")).toBe("invalid_part")
     expect((await sendPart(started, 0, bytes(10, 2))).headers.get("x-error-code")).toBe("invalid_part")
   })

@@ -94,8 +94,11 @@ async function uploadPart(
     return errorResponse("length_required", "Send each part with a Content-Length header", 411)
   }
   if (declared < 1) return emptyBody(url)
-  if (declared > partSize) {
-    return errorResponse("too_large", `Invalid part size: ${declared}, each part is at most ${partSize}`, 413)
+  // The last part the limit allows only gets what is left of the limit, so
+  // the joined file can never pass it, whatever the part size.
+  const allowed = Math.min(partSize, config.maxMultipartFileSizeBytes - (part - 1) * partSize)
+  if (declared > allowed) {
+    return errorResponse("too_large", `Invalid part size: ${declared}, part ${part} is at most ${allowed}`, 413)
   }
 
   const upload = config.bucket.resumeMultipartUpload(key, uploadId)
