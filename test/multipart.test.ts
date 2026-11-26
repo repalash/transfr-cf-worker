@@ -132,6 +132,23 @@ describe("large uploads in parts", () => {
     expect(notOurs.headers.get("x-error-code")).toBe("invalid_upload")
   })
 
+  it("holds the link while the parts arrive, so no other upload gets it, and shows nothing there yet", async () => {
+    const started = await start("held.bin", 10)
+    const bucket = env[env.R2_DEFAULT_NAMESPACE] as R2Bucket
+    // The write that would take the same key is refused.
+    expect(await bucket.put(started.key, "other", { onlyIf: { etagDoesNotMatch: "*" } })).toBeNull()
+    // Until the upload finishes, the link answers like a missing file, for scripts and browsers.
+    expect((await call(new Request(`${ORIGIN}/${started.key}?raw=1`))).status).toBe(404)
+    expect((await call(new Request(`${ORIGIN}/${started.key}`, { method: "HEAD" }))).status).toBe(404)
+    const page = await call(
+      new Request(`${ORIGIN}/${started.key}`, { headers: { "sec-fetch-dest": "document", accept: "text/html", "user-agent": "Mozilla/5.0" } }),
+    )
+    expect(page.status).toBe(404)
+    const part = (await (await sendPart(started, 1, bytes(10, 4))).json()) as { part: number; etag: string }
+    expect((await finish(started, [part])).status).toBe(200)
+    expect((await call(new Request(`${ORIGIN}/${started.key}?raw=1`))).status).toBe(200)
+  })
+
   it("refuses to finish onto a file stored at the same address meanwhile", async () => {
     const started = await start("same.bin", 10)
     const part = (await (await sendPart(started, 1, bytes(10, 3))).json()) as { part: number; etag: string }

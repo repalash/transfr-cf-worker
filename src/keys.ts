@@ -36,6 +36,46 @@ export function createObjectKey(filename: string, ttlSeconds: number, now: numbe
   return { key: `${expiresAt.toString(16)}-${random.toString(16)}/${filename}`, expiresAt }
 }
 
+/**
+ * Metadata on the empty placeholder that holds a large upload's key while its
+ * parts arrive. Downloads treat it as not there yet.
+ */
+export const PENDING_UPLOAD_METADATA = "pendingUpload"
+
+/** Whether a stored object is a large upload's placeholder rather than a file. */
+export function isPendingUpload(object: R2Object): boolean {
+  return object.customMetadata?.[PENDING_UPLOAD_METADATA] !== undefined
+}
+
+/**
+ * Stores under a fresh key that no other object holds, drawing again if one
+ * does. The write itself refuses to overwrite, so two uploads that draw the
+ * same key at the same moment cannot both have it.
+ */
+export async function putUnderNewKey(
+  bucket: R2Bucket,
+  filename: string,
+  ttlSeconds: number,
+  body: ReadableStream | Uint8Array | null,
+  options: { contentType?: string; customMetadata?: Record<string, string> },
+): Promise<{ key: string; expiresAt: number; object: R2Object }> {
+  const streamed = body instanceof ReadableStream
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const { key, expiresAt } = createObjectKey(filename, ttlSeconds)
+    // A refused write uses up a body stream, so a stream is only sent to a
+    // key that looks free; the write itself still refuses to overwrite.
+    if (streamed && (await bucket.head(key)) !== null) continue
+    const object = await bucket.put(key, body, {
+      httpMetadata: { contentType: options.contentType },
+      customMetadata: { ...options.customMetadata, expiresAt: String(expiresAt) },
+      onlyIf: { etagDoesNotMatch: "*" },
+    })
+    if (object) return { key, expiresAt, object }
+    if (streamed) break
+  }
+  throw new Error("could not find a free key")
+}
+
 export function randomHex(bytes: number): string {
   const buffer = new Uint8Array(bytes)
   crypto.getRandomValues(buffer)

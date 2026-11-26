@@ -1,6 +1,6 @@
 import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
 import { errorResponse, jsonResponse, textResponse, wantsJson } from "./http"
-import { createObjectKey, decodeFilename, filenameFromKey, toHex } from "./keys"
+import { decodeFilename, filenameFromKey, putUnderNewKey, toHex } from "./keys"
 import { contentTypeFor } from "./mime"
 
 /** A multipart form adds boundaries and part headers around the file. */
@@ -156,20 +156,13 @@ async function store(
   url: URL,
   config: Config,
 ): Promise<Response> {
+  const contentType = contentTypeFor(sentContentType, decodeFilename(filename))
   // Two uploads of the same name in the same second can draw the same key;
-  // draw again rather than overwrite someone else's file.
-  let { key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds)
-  for (let attempt = 0; attempt < 16 && (await config.bucket.head(key)) !== null; attempt++) {
-    ;({ key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds))
-  }
-  const name = decodeFilename(filename)
-  const contentType = contentTypeFor(sentContentType, name)
-
-  // Awaited rather than deferred with waitUntil: the URL is returned to the
-  // client, so the object has to be readable by the time it is.
-  const object = await config.bucket.put(key, body, {
-    httpMetadata: { contentType },
-    customMetadata: { expiresAt: String(expiresAt) },
+  // the write refuses to overwrite and a new key is drawn. Awaited rather than
+  // deferred with waitUntil: the URL is returned to the client, so the object
+  // has to be readable by the time it is.
+  const { key, expiresAt, object } = await putUnderNewKey(config.bucket, filename, config.fileTtlSeconds, body, {
+    contentType,
   })
 
   return storedReply(request, url, key, expiresAt, object, contentType, config)

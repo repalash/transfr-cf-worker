@@ -1,6 +1,6 @@
 import type { Config } from "./config"
 import { errorResponse, jsonResponse } from "./http"
-import { createObjectKey, decodeFilename } from "./keys"
+import { decodeFilename, isPendingUpload, PENDING_UPLOAD_METADATA, putUnderNewKey } from "./keys"
 import { contentTypeFor } from "./mime"
 import { emptyBody, isLengthMismatch, parseContentLength, storedReply, validateFilename } from "./upload"
 
@@ -56,11 +56,13 @@ async function start(request: Request, url: URL, path: string, config: Config): 
     )
   }
 
-  let { key, expiresAt } = createObjectKey(path, config.fileTtlSeconds)
-  for (let attempt = 0; attempt < 16 && (await config.bucket.head(key)) !== null; attempt++) {
-    ;({ key, expiresAt } = createObjectKey(path, config.fileTtlSeconds))
-  }
+  // An empty placeholder holds the key while the parts arrive, so no other
+  // upload can be given the same link in the meantime.
   const contentType = contentTypeFor(request.headers.get("content-type"), decodeFilename(path))
+  const { key, expiresAt } = await putUnderNewKey(config.bucket, path, config.fileTtlSeconds, new Uint8Array(0), {
+    contentType,
+    customMetadata: { [PENDING_UPLOAD_METADATA]: "1" },
+  })
   const upload = await config.bucket.createMultipartUpload(key, {
     httpMetadata: { contentType },
     customMetadata: { expiresAt: String(expiresAt) },
@@ -144,9 +146,10 @@ async function complete(
     )
   }
 
-  // The key was free when the upload started, but another upload may have
-  // taken it since; joining now would replace that file.
-  if ((await config.bucket.head(key)) !== null) {
+  // Only this upload's own placeholder may be replaced. Anything else at the
+  // key (which should never happen) is a file that must not be overwritten.
+  const holder = await config.bucket.head(key)
+  if (holder !== null && !isPendingUpload(holder)) {
     return errorResponse(
       "upload_conflict",
       "Another file was stored at this address while the upload ran. Start the upload again",

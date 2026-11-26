@@ -1,7 +1,7 @@
 import type { Config } from "./config"
 import { corsHeaders } from "./cors"
 import { errorResponse, htmlResponse, isNavigation, NO_INDEX, notFound } from "./http"
-import { decodeFilename, filenameFromKey, parseExpiry } from "./keys"
+import { decodeFilename, filenameFromKey, isPendingUpload, parseExpiry } from "./keys"
 import { contentDisposition } from "./mime"
 import { formatDuration } from "./format"
 import { renderAccessPage } from "./pages"
@@ -43,7 +43,7 @@ export async function handleDownload(
 
   if (isHead) {
     const object = await config.bucket.head(key)
-    if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+    if (!object || isPendingUpload(object)) return notFound(formatDuration(config.fileTtlSeconds))
     return new Response(null, { status: 200, headers: objectHeaders(object, key) })
   }
 
@@ -61,7 +61,7 @@ export async function handleDownload(
     if (unsatisfiable) return unsatisfiable
     throw error
   }
-  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+  if (!object || isPendingUpload(object)) return notFound(formatDuration(config.fileTtlSeconds))
 
   const headers = objectHeaders(object, key)
   const body = "body" in object ? object.body : null
@@ -100,7 +100,7 @@ function prefersAccessPage(request: Request, url: URL, config: Config): boolean 
 
 async function accessPageResponse(key: string, url: URL, config: Config): Promise<Response> {
   const object = await config.bucket.head(key)
-  if (!object) return notFound(formatDuration(config.fileTtlSeconds))
+  if (!object || isPendingUpload(object)) return notFound(formatDuration(config.fileTtlSeconds))
 
   const filename = decodeFilename(filenameFromKey(key))
   const contentType = object.httpMetadata?.contentType ?? ""
