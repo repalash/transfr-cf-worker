@@ -74,9 +74,25 @@ The server never needs to see the contents. Encrypt before uploading:
 A file whose name ends in .pgp, .gpg or .asc can also be decrypted in the
 browser, on the page its link opens.
 
+## Large files (up to {{MAX_UPLOAD_LABEL}})
+
+One request carries up to {{MAX_FILE_SIZE_LABEL}}. A larger file, up to {{MAX_UPLOAD_LABEL}} ({{MAX_UPLOAD_BYTES}} bytes), goes
+up in parts that are joined into one file with one link. The web page does
+this by itself. From a script:
+
+    # 1. Start: say the name and size. Reply: key, upload_id, part_size, part_count, upload_url
+    curl -X POST -H "Accept: application/json" "{{ORIGIN}}/big.zip?uploads&size=$(wc -c < big.zip | tr -d ' ')"
+    # 2. Send each part: part_size bytes ({{PART_SIZE_BYTES}}), the last one shorter. Reply: {"part":1,"etag":"..."}
+    split -b {{PART_SIZE_BYTES}} big.zip part_      # makes part_aa, part_ab, ...
+    curl -T part_aa "<upload_url>&part=1"
+    curl -T part_ab "<upload_url>&part=2"
+    # 3. Finish with every part's number and etag. Reply: the link, as for any upload
+    curl -X POST "<upload_url>&complete" --data '{"parts":[{"part":1,"etag":"..."},{"part":2,"etag":"..."}]}'
+
 ## Limits
 
-- Size: up to {{MAX_FILE_SIZE_LABEL}} ({{MAX_FILE_SIZE_BYTES}} bytes). Form uploads (curl -F) and
+- Size: up to {{MAX_FILE_SIZE_LABEL}} ({{MAX_FILE_SIZE_BYTES}} bytes) in one request, and up to
+  {{MAX_UPLOAD_LABEL}} in parts (see Large files). Form uploads (curl -F) and
   uploads sent without a Content-Length: up to {{MAX_BUFFERED_FILE_SIZE_LABEL}}.
 - Lifetime: {{TTL_LABEL}}. After that the link answers 404. A file cannot be
   deleted earlier, replaced or listed.
@@ -94,8 +110,11 @@ the body is JSON instead: {"error": "<the text>", "code": "<the code>", "status"
 
 - 400  no_filename, empty_body, invalid_filename, filename_too_long,
        length_mismatch (the body was not as long as its Content-Length),
-       invalid_form, no_file_in_form
-- 404  not_found: the link is wrong or the file has expired
+       invalid_form, no_file_in_form, invalid_size, invalid_part,
+       invalid_parts, invalid_upload (large uploads)
+- 411  length_required: a part was sent without a Content-Length
+- 404  not_found: the link is wrong or the file has expired; unknown_upload
+- 409  upload_conflict: start the large upload again
 - 405  method_not_allowed: only GET, HEAD, PUT, POST and OPTIONS are supported
 - 413  too_large: the file is larger than the limit
 - 416  range_not_satisfiable

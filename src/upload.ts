@@ -1,6 +1,6 @@
 import { type Config, MAX_ENCODED_FILENAME_LENGTH, MAX_FILENAME_LENGTH } from "./config"
 import { errorResponse, jsonResponse, textResponse, wantsJson } from "./http"
-import { createObjectKey, decodeFilename, toHex } from "./keys"
+import { createObjectKey, decodeFilename, filenameFromKey, toHex } from "./keys"
 import { contentTypeFor } from "./mime"
 
 /** A multipart form adds boundaries and part headers around the file. */
@@ -129,7 +129,7 @@ async function handleFormUpload(
 }
 
 /** Null if the name can be stored, otherwise the response explaining why not. */
-function validateFilename(filename: string, url: URL): Response | null {
+export function validateFilename(filename: string, url: URL): Response | null {
   if (filename.length < 1) {
     return errorResponse("no_filename", `No filename: put one in the URL, like ${url.origin}/filename.txt`, 400)
   }
@@ -162,8 +162,7 @@ async function store(
   for (let attempt = 0; attempt < 16 && (await config.bucket.head(key)) !== null; attempt++) {
     ;({ key, expiresAt } = createObjectKey(filename, config.fileTtlSeconds))
   }
-  const name = decodeFilename(filename)
-  const contentType = contentTypeFor(sentContentType, name)
+  const contentType = contentTypeFor(sentContentType, decodeFilename(filename))
 
   // Awaited rather than deferred with waitUntil: the URL is returned to the
   // client, so the object has to be readable by the time it is.
@@ -172,13 +171,26 @@ async function store(
     customMetadata: { expiresAt: String(expiresAt) },
   })
 
+  return storedReply(request, url, key, expiresAt, object, contentType, config)
+}
+
+/** The reply to a finished upload: the link, or JSON about the file. */
+export function storedReply(
+  request: Request,
+  url: URL,
+  key: string,
+  expiresAt: number,
+  object: R2Object,
+  contentType: string | undefined,
+  config: Config,
+): Response {
   const link = `${url.origin}/${key}`
   const expires = new Date(expiresAt * 1000).toISOString()
   if (wantsJson(request)) {
     return jsonResponse({
       url: link,
       raw_url: `${link}?raw=1`,
-      name,
+      name: decodeFilename(filenameFromKey(key)),
       size: object.size,
       content_type: contentType ?? "application/octet-stream",
       md5: object.checksums.md5 ? toHex(object.checksums.md5) : undefined,
@@ -189,7 +201,7 @@ async function store(
   return textResponse(`${link}\n`, 200, { "X-Expires-At": expires, "Access-Control-Expose-Headers": "X-Expires-At" })
 }
 
-function emptyBody(url: URL): Response {
+export function emptyBody(url: URL): Response {
   return errorResponse(
     "empty_body",
     `Empty body, there is nothing to upload. Send the file's bytes as the request body: PUT ${url.origin}/<file name>`,
@@ -198,7 +210,7 @@ function emptyBody(url: URL): Response {
 }
 
 /** A Content-Length header as a byte count, or null when absent or malformed. */
-function parseContentLength(header: string | null): number | null {
+export function parseContentLength(header: string | null): number | null {
   if (header === null || !/^\d+$/.test(header.trim())) return null
   const length = Number(header.trim())
   return Number.isSafeInteger(length) ? length : null
@@ -229,7 +241,7 @@ async function readAtMost(stream: ReadableStream<Uint8Array>, limit: number): Pr
 }
 
 /** The put fails with this when the body is shorter or longer than its Content-Length. */
-function isLengthMismatch(error: unknown): boolean {
+export function isLengthMismatch(error: unknown): boolean {
   return error instanceof TypeError && error.message.includes("FixedLengthStream")
 }
 
