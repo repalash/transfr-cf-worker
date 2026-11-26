@@ -168,7 +168,9 @@ Variables in `wrangler.toml` under `[vars]`:
 | `R2_DEFAULT_NAMESPACE`   | –          | Name of the R2 binding to store files in (required).            |
 | `R2_MAX_FILE_SIZE_BYTES` | `21000000` | Largest accepted upload with a `Content-Length`; streamed straight to R2. |
 | `R2_MAX_BUFFERED_FILE_SIZE_BYTES` | `21000000` | Largest upload without a `Content-Length` (chunked) or sent as a form, both of which are buffered in memory. Capped at `R2_MAX_FILE_SIZE_BYTES`. |
-| `R2_DEFAULT_FILE_TTL`    | `86400`    | File lifetime in seconds.                                       |
+| `R2_MAX_MULTIPART_FILE_SIZE_BYTES` | `262144000` | Largest file sent in parts and joined into one (250 MB). The page does this for files over `R2_MAX_FILE_SIZE_BYTES`; scripts can too, see the guide. |
+| `R2_MULTIPART_PART_SIZE_BYTES` | `52428800` | Size of every part but the last (50 MB); at least 5 MB, at most `R2_MAX_FILE_SIZE_BYTES`. |
+| `R2_DEFAULT_FILE_TTL`    | `604800`   | File lifetime in seconds.                                       |
 | `RAW_ONLY_HOSTS`         | –          | Hosts that always serve bytes, never the HTML page, e.g. for embedding. |
 | `CANONICAL_ORIGIN`       | –          | The address search engines should index, e.g. `https://transfr.one`. The landing page on any other host is marked `noindex` and points here. Unset, each host is its own canonical address. |
 

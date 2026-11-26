@@ -14,6 +14,10 @@ export interface Env {
    * which has to be buffered in memory. Capped at R2_MAX_FILE_SIZE_BYTES.
    */
   R2_MAX_BUFFERED_FILE_SIZE_BYTES?: string | number
+  /** Largest file uploaded in parts (the page does this for files over R2_MAX_FILE_SIZE_BYTES). */
+  R2_MAX_MULTIPART_FILE_SIZE_BYTES?: string | number
+  /** Size of every part of a multipart upload but the last; at least 5 MB (5242880). */
+  R2_MULTIPART_PART_SIZE_BYTES?: string | number
   /** Lifetime of an uploaded file, in seconds. */
   R2_DEFAULT_FILE_TTL?: string | number
   /**

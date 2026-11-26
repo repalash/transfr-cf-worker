@@ -49,12 +49,12 @@ function tooLargeMessage() {
   return "File size limit exceeded. Max file size is " + config.maxFileSizeLabel + ".";
 }
 
-/** PUTs the file and resolves with the response text; reports progress as 0..1. */
-function put(path, file, onProgress) {
+/** Sends `body` and resolves with the response text; reports progress as 0..1. */
+function send(method, path, body, contentType, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", path);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.open(method, path);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
     });
@@ -65,8 +65,32 @@ function put(path, file, onProgress) {
     });
     xhr.addEventListener("error", () => reject(new Error("Network error, please try again.")));
     xhr.addEventListener("abort", () => reject(new Error("Upload cancelled.")));
-    xhr.send(file);
+    xhr.send(body);
   });
+}
+
+/** PUTs the file in one request and resolves with the link. */
+function put(path, file, onProgress) {
+  return send("PUT", path, file, file.type || "application/octet-stream", onProgress);
+}
+
+/**
+ * Sends a file too large for one request (Cloudflare caps a request at 100 MB)
+ * in parts, which the server joins into one file. Resolves with the link.
+ */
+async function putInParts(path, file, onProgress) {
+  const started = JSON.parse(await send("POST", path + "?uploads&size=" + file.size, null,
+    file.type || "application/octet-stream", () => {}));
+  const parts = [];
+  for (let part = 1; part <= started.part_count; part++) {
+    const start = (part - 1) * started.part_size;
+    const piece = file.slice(start, Math.min(start + started.part_size, file.size));
+    const reply = JSON.parse(await send("PUT", started.upload_url + "&part=" + part, piece, null, (fraction) => {
+      onProgress((start + fraction * piece.size) / file.size);
+    }));
+    parts.push({part: reply.part, etag: reply.etag});
+  }
+  return send("POST", started.upload_url + "&complete", JSON.stringify({parts}), "application/json", () => {});
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -175,13 +199,17 @@ document.addEventListener("DOMContentLoaded", () => {
       encrypted = true;
       upFile = new File([ciphertext], filename + ".pgp", {type: "application/pgp-encrypted"});
       // Encryption adds a little, so a file just under the limit can go over.
-      if (upFile.size > config.maxFileSizeBytes) throw new Error(tooLargeMessage());
+      if (upFile.size > config.maxUploadBytes) throw new Error(tooLargeMessage());
     }
 
     dropzoneText.innerText = label + ": Uploading...";
-    const text = await put("/" + encodeURIComponent(upFile.name), upFile, (fraction) => {
+    const path = "/" + encodeURIComponent(upFile.name);
+    const progress = (fraction) => {
       dropzoneText.innerText = label + ": Uploading... " + Math.floor(fraction * 100) + "%";
-    });
+    };
+    const text = upFile.size > config.maxFileSizeBytes
+      ? await putInParts(path, upFile, progress)
+      : await put(path, upFile, progress);
 
     // Only ever link to a URL this origin produced.
     const link = new URL(text, location.origin);
@@ -199,7 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const file = files[0];
-    if (file.size > config.maxFileSizeBytes) {
+    if (file.size > config.maxUploadBytes) {
       alert(tooLargeMessage());
       return;
     }

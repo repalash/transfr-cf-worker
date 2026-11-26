@@ -3,6 +3,7 @@ import { ALLOWED_METHODS, handleOptions } from "./cors"
 import { handleDownload } from "./download"
 import type { Env } from "./env"
 import { errorAsJson, errorResponse, wantsJson } from "./http"
+import { handleMultipart, isMultipartRequest } from "./multipart"
 import { handleUpload } from "./upload"
 
 export type { Env }
@@ -33,6 +34,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   switch (request.method) {
     case "PUT":
     case "POST":
+      if (isMultipartRequest(url)) return await handleMultipart(request, url, config)
       return await handleUpload(request, url, config)
     case "GET":
     case "HEAD":

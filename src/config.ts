@@ -16,6 +16,11 @@ const DEFAULT_MAX_FILE_SIZE_BYTES = 21_000_000 // 20 MB
  */
 const DEFAULT_MAX_BUFFERED_FILE_SIZE_BYTES = 21_000_000 // 20 MB
 const DEFAULT_FILE_TTL_SECONDS = 604_800 // 7 days
+/** Largest file sent in parts (one request is capped at 100 MB by Cloudflare). */
+const DEFAULT_MAX_MULTIPART_FILE_SIZE_BYTES = 250 * 1024 * 1024 // 250 MB
+/** Size of every part but the last. R2 needs at least 5 MB. */
+const DEFAULT_MULTIPART_PART_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
+const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024
 
 export interface Config {
   bucket: R2Bucket
@@ -24,6 +29,10 @@ export interface Config {
   /** Largest upload without a Content-Length; buffered in memory. Never above maxFileSizeBytes. */
   maxBufferedFileSizeBytes: number
   fileTtlSeconds: number
+  /** Largest file uploaded in parts; at least maxFileSizeBytes. */
+  maxMultipartFileSizeBytes: number
+  /** Size of every part of a multipart upload but the last; at most maxFileSizeBytes. */
+  multipartPartSizeBytes: number
   rawOnlyHosts: string[]
   /** Origin to point search engines and share previews at, or null to use the request's own. */
   canonicalOrigin: string | null
@@ -50,11 +59,35 @@ export function loadConfig(env: Env): Config {
     DEFAULT_MAX_BUFFERED_FILE_SIZE_BYTES,
   )
 
+  const configuredPartSize = positiveInt(
+    env.R2_MULTIPART_PART_SIZE_BYTES,
+    "R2_MULTIPART_PART_SIZE_BYTES",
+    DEFAULT_MULTIPART_PART_SIZE_BYTES,
+  )
+  if (configuredPartSize < MIN_MULTIPART_PART_SIZE_BYTES) {
+    throw new ConfigError(`R2_MULTIPART_PART_SIZE_BYTES must be at least ${MIN_MULTIPART_PART_SIZE_BYTES}`)
+  }
+  // A part has to fit in one request. If one request cannot carry R2's
+  // smallest part, uploads in parts are off and the single request limit applies.
+  const multipartPartSizeBytes = Math.min(configuredPartSize, maxFileSizeBytes)
+  const partsPossible = multipartPartSizeBytes >= MIN_MULTIPART_PART_SIZE_BYTES
+
   return {
     bucket,
     maxFileSizeBytes,
     maxBufferedFileSizeBytes: Math.min(maxBufferedFileSizeBytes, maxFileSizeBytes),
     fileTtlSeconds: positiveInt(env.R2_DEFAULT_FILE_TTL, "R2_DEFAULT_FILE_TTL", DEFAULT_FILE_TTL_SECONDS),
+    maxMultipartFileSizeBytes: partsPossible
+      ? Math.max(
+          positiveInt(
+            env.R2_MAX_MULTIPART_FILE_SIZE_BYTES,
+            "R2_MAX_MULTIPART_FILE_SIZE_BYTES",
+            DEFAULT_MAX_MULTIPART_FILE_SIZE_BYTES,
+          ),
+          maxFileSizeBytes,
+        )
+      : maxFileSizeBytes,
+    multipartPartSizeBytes,
     rawOnlyHosts: (env.RAW_ONLY_HOSTS ?? "")
       .split(",")
       .map((host) => host.trim().toLowerCase())

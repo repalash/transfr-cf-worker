@@ -15,11 +15,14 @@ export function renderIndexPage(origin: string, canonicalOrigin: string, config:
   return render(indexTemplate, {
     CONFIG_JSON: jsonForScript({
       maxFileSizeBytes: config.maxFileSizeBytes,
-      maxFileSizeLabel,
+      maxUploadBytes: config.maxMultipartFileSizeBytes,
+      partSizeBytes: config.multipartPartSizeBytes,
+      maxFileSizeLabel: formatBytes(config.maxMultipartFileSizeBytes),
       ttlLabel,
     }),
     ORIGIN: escapeHtml(origin),
     MAX_FILE_SIZE_LABEL: escapeHtml(maxFileSizeLabel),
+    MAX_UPLOAD_LABEL: escapeHtml(formatBytes(config.maxMultipartFileSizeBytes)),
     MAX_BUFFERED_FILE_SIZE_LABEL: escapeHtml(formatBytes(config.maxBufferedFileSizeBytes)),
     TTL_LABEL: escapeHtml(ttlLabel),
     // Search engines and share previews are pointed at one address, whichever
@@ -49,6 +52,9 @@ export function renderGuide(origin: string, config: Config): string {
     MAX_FILE_SIZE_LABEL: formatBytes(config.maxFileSizeBytes),
     MAX_FILE_SIZE_BYTES: String(config.maxFileSizeBytes),
     MAX_BUFFERED_FILE_SIZE_LABEL: formatBytes(config.maxBufferedFileSizeBytes),
+    MAX_UPLOAD_LABEL: formatBytes(config.maxMultipartFileSizeBytes),
+    MAX_UPLOAD_BYTES: String(config.maxMultipartFileSizeBytes),
+    PART_SIZE_BYTES: String(config.multipartPartSizeBytes),
   })
 }
 
