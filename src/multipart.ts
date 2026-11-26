@@ -1,6 +1,6 @@
 import type { Config } from "./config"
 import { errorResponse, jsonResponse } from "./http"
-import { decodeFilename, isPendingUpload, PENDING_UPLOAD_METADATA, putUnderNewKey } from "./keys"
+import { decodeFilename, isPendingUpload, PENDING_UPLOAD_METADATA, reserveNewKey } from "./keys"
 import { contentTypeFor } from "./mime"
 import { emptyBody, isLengthMismatch, parseContentLength, storedReply, validateFilename } from "./upload"
 
@@ -59,7 +59,7 @@ async function start(request: Request, url: URL, path: string, config: Config): 
   // An empty placeholder holds the key while the parts arrive, so no other
   // upload can be given the same link in the meantime.
   const contentType = contentTypeFor(request.headers.get("content-type"), decodeFilename(path))
-  const { key, expiresAt } = await putUnderNewKey(config.bucket, path, config.fileTtlSeconds, new Uint8Array(0), {
+  const { key, expiresAt } = await reserveNewKey(config.bucket, path, config.fileTtlSeconds, {
     contentType,
     customMetadata: { [PENDING_UPLOAD_METADATA]: "1" },
   })
